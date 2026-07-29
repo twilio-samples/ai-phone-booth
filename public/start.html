@@ -199,6 +199,24 @@
   }
   .btn-start:active { transform: scale(0.97); background: var(--red-dark); }
   .btn-start:disabled { opacity: 0.45; transform: none; box-shadow: none; cursor: not-allowed; }
+  .phone-input {
+    width: 100%;
+    padding: 16px 20px;
+    background: rgba(255,255,255,0.05);
+    border: 1px dashed var(--border);
+    border-radius: 14px;
+    color: var(--text);
+    font-size: clamp(16px, 2vw, 26px);
+    font-family: inherit;
+    transition: background 0.2s, border-color 0.2s;
+  }
+  .phone-input:focus {
+    outline: none;
+    background: rgba(255,255,255,0.08);
+    border-color: var(--red-glow);
+    border-style: solid;
+  }
+  .phone-input::placeholder { color: var(--muted); }
   .status-msg {
     min-height: 22px;
     font-size: 15px;
@@ -335,6 +353,14 @@
   </div>
 
   <div class="cta-area">
+    <input
+      type="tel"
+      class="phone-input"
+      id="phoneInput"
+      placeholder="Enter your phone number (optional)"
+      pattern="[+]?[0-9\s\-\(\)]+"
+      style="display: none;"
+    />
     <button class="btn-start" id="startBtn">Tap to Start</button>
     <div class="status-msg" id="statusMsg"></div>
   </div>
@@ -354,6 +380,10 @@
 <script>
   const btn = document.getElementById('startBtn');
   const statusMsg = document.getElementById('statusMsg');
+  const phoneInput = document.getElementById('phoneInput');
+
+  const ALLOW_PHONE_NUMBER_OVERRIDE = %%ALLOW_PHONE_NUMBER_OVERRIDE%%;
+  if (ALLOW_PHONE_NUMBER_OVERRIDE) phoneInput.style.display = '';
 
   btn.addEventListener('click', async () => {
     btn.disabled = true;
@@ -361,10 +391,11 @@
     statusMsg.textContent = 'Starting call…';
 
     try {
+      const phoneNumber = ALLOW_PHONE_NUMBER_OVERRIDE ? phoneInput.value.trim() : '';
       const res = await fetch('/api/startBoothCall', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: 'Booth Guest', email: '' }),
+        body: JSON.stringify({ name: 'Booth Guest', email: '', phoneNumber: phoneNumber || undefined }),
       });
       const data = await res.json();
       if (!data.success) throw new Error(data.error ?? 'Unknown error');
