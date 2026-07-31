@@ -94,6 +94,7 @@ export async function registerFrontendRoutes(app: FastifyInstance): Promise<void
   // ── Clean HTML routes ─────────────────────────────────────────────────────
   app.get("/", (_, reply) => reply.redirect("/start"));
 
+  // No dedicated hero image exists yet for "drinks" — falls back to the barista photo.
   const heroImage     = drinkLabel === "smoothie" ? "smoothie.png" : "barista.png";
   const drinkLabelCap = drinkLabel.charAt(0).toUpperCase() + drinkLabel.slice(1);
 
@@ -468,7 +469,7 @@ export async function registerFrontendRoutes(app: FastifyInstance): Promise<void
     if (typeof body.allowPhoneNumberOverride !== "boolean") errors.allowPhoneNumberOverride = "Must be true or false.";
 
     const drinkType = String(body.drinkType ?? "").trim().toLowerCase();
-    if (drinkType !== "coffee" && drinkType !== "smoothie") errors.drinkType = 'Must be "coffee" or "smoothie".';
+    if (!["coffee", "smoothie", "drinks"].includes(drinkType)) errors.drinkType = 'Must be "coffee", "smoothie", or "drinks".';
 
     const eventName = String(body.eventName ?? "").trim().toLowerCase();
     if (!/^[a-z0-9]+(-[a-z0-9]+)*$/.test(eventName)) {

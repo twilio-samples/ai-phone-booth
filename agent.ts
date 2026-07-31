@@ -81,17 +81,21 @@ export function validateMenuItems(raw: string): string | null {
   return null;
 }
 
-const isSmoothie = DRINK_TYPE === "smoothie";
-
 const DEFAULT_COFFEE_MENU =
   "Espresso,Cortado,Cappuccino,Flat White,Americano,Matcha Latte,Cold Brew,Iced Matcha,Iced Latte";
 const DEFAULT_SMOOTHIE_MENU =
   "Macarena(Strawberry, Pineapple, Apple, Passion Fruit, Goji, Vanilla),La Isla Bonita(Pineapple, Banana, Coconut Milk, Dates, Blue Spirulina),Calma(Mango, Pineapple, Spinach, Banana, Almonds, Ginger, Lemon)";
+const DEFAULT_DRINKS_MENU =
+  "Irish Lovers(Espresso, brown sugar, Jameson Irish Whiskey, topped with a layer of fresh cream infused with macadamia essence),Shakerato Lovers(Espresso shaken with ice, Leblon Cachaça, lemon syrup and sugarcane molasses),Blue Gin Lovers(Espresso, blue curaçao, tonic water and gin, garnished with a lemon slice)";
 
-const menuItems = parseMenuItems(
-  resolvedConfig.menuItems ||
-    (isSmoothie ? DEFAULT_SMOOTHIE_MENU : DEFAULT_COFFEE_MENU),
-);
+const DRINK_TYPE_PRESETS: Record<string, { venueLabel: string; roleLabel: string; icon: string; defaultMenu: string }> = {
+  coffee:   { venueLabel: "Twilio Cafe",  roleLabel: "Barista",            icon: "☕", defaultMenu: DEFAULT_COFFEE_MENU },
+  smoothie: { venueLabel: "Smoothie Bar", roleLabel: "Smoothie Bartender", icon: "🍹", defaultMenu: DEFAULT_SMOOTHIE_MENU },
+  drinks:   { venueLabel: "Cocktail Bar", roleLabel: "Mixologist",         icon: "🍸", defaultMenu: DEFAULT_DRINKS_MENU },
+};
+const drinkPreset = DRINK_TYPE_PRESETS[DRINK_TYPE] ?? DRINK_TYPE_PRESETS.coffee;
+
+const menuItems = parseMenuItems(resolvedConfig.menuItems || drinkPreset.defaultMenu);
 export const menuNames = menuItems.map((i) => i.name);
 const menuForPrompt = menuItems.map((i) =>
   i.description ? `${i.name} (${i.description})` : i.name
@@ -99,9 +103,9 @@ const menuForPrompt = menuItems.map((i) =>
 
 export const drinkLabel = DRINK_TYPE;
 const drinkLabelUp = DRINK_TYPE.toUpperCase();
-export const venueLabel = isSmoothie ? "Smoothie Bar" : "Twilio Cafe";
-export const roleLabel = isSmoothie ? "Smoothie Bartender" : "Barista";
-export const drinkIcon = isSmoothie ? "🍹" : "☕";
+export const venueLabel = drinkPreset.venueLabel;
+export const roleLabel = drinkPreset.roleLabel;
+export const drinkIcon = drinkPreset.icon;
 
 let knowledgeSearchImpl:
   | ((args: { query: string }) => Promise<unknown>)

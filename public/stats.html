@@ -236,7 +236,8 @@ async function loadStats() {
   // Update header icon and title based on drink type
   const dl = d.drinkLabel ?? 'drink';
   const dlCap = dl.charAt(0).toUpperCase() + dl.slice(1);
-  document.getElementById('headerIcon').textContent = dl === 'smoothie' ? '🍹' : '☕';
+  const icons = { smoothie: '🍹', drinks: '🍸' };
+  document.getElementById('headerIcon').textContent = icons[dl] ?? '☕';
   document.getElementById('headerTitle').textContent = `Twilio — Olivia (${dlCap}s)`;
 
   // KPI cards
