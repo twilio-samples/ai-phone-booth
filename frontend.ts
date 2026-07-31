@@ -96,6 +96,7 @@ export async function registerFrontendRoutes(app: FastifyInstance): Promise<void
     const html = serveTemplated("start.html", {
       ATTRACT_MODE:    process.env.ATTRACT_MODE === "true" ? "true" : "false",
       ATTRACT_DEV:     process.env.ATTRACT_DEV  === "true" ? "true" : "false",
+      ALLOW_PHONE_NUMBER_OVERRIDE: process.env.ALLOW_PHONE_NUMBER_OVERRIDE === "true" ? "true" : "false",
       VENUE_LABEL:     venueLabel,
       DRINK_LABEL:     drinkLabel,
       DRINK_LABEL_CAP: drinkLabelCap,
@@ -158,7 +159,10 @@ export async function registerFrontendRoutes(app: FastifyInstance): Promise<void
 
     const client = getTwilio();
     const syncServiceSid = process.env.TWILIO_SYNC_SERVICE_SID!;
-    const sipAddress = process.env.SIP_PHONE_ADDRESS!;
+    const phoneOverride = body.phoneNumber?.trim();
+    const sipAddress = (process.env.ALLOW_PHONE_NUMBER_OVERRIDE === "true" && phoneOverride)
+      ? phoneOverride
+      : process.env.SIP_PHONE_ADDRESS!;
     const from = process.env.TWILIO_PHONE_NUMBER!;
     const ngrokBase = getPublicBaseUrl(req);
 
