@@ -11,6 +11,7 @@ import type {
   TACMemoryResponse,
 } from "twilio-agent-connect";
 import { updateCallTracker } from "./sync.ts";
+import { resolvedConfig } from "./config.ts";
 
 config();
 
@@ -31,10 +32,9 @@ const BASE_URL = `http://localhost:${process.env.PORT ?? 8000}/api/beans`;
 
 // ── Drink-type / menu config ───────────────────────────────────────────────────
 
-const DRINK_TYPE = (process.env.DRINK_TYPE ?? "coffee").toLowerCase();
-const isSmoothie = DRINK_TYPE === "smoothie";
+const DRINK_TYPE = resolvedConfig.drinkType;
 
-function parseMenuItems(raw: string): { name: string; description: string }[] {
+export function parseMenuItems(raw: string): { name: string; description: string }[] {
   const entries: string[] = [];
   let depth = 0, start = 0;
   for (let i = 0; i < raw.length; i++) {
@@ -59,13 +59,37 @@ function parseMenuItems(raw: string): { name: string; description: string }[] {
     .filter((i) => i.name);
 }
 
+// Mirrors the parsing above but rejects malformed input instead of silently
+// dropping it — used to validate admin-submitted MENU_ITEMS before it's saved.
+export function validateMenuItems(raw: string): string | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return "Menu items cannot be empty.";
+  let depth = 0;
+  for (const ch of trimmed) {
+    if (ch === "(") depth++;
+    else if (ch === ")") {
+      depth--;
+      if (depth < 0) return "Unmatched ')' in menu items.";
+    }
+  }
+  if (depth !== 0) return "Unmatched '(' in menu items.";
+  const items = parseMenuItems(trimmed);
+  if (!items.length) return "Menu items cannot be empty.";
+  for (const item of items) {
+    if (/[()]/.test(item.name)) return `Invalid menu item name: "${item.name}".`;
+  }
+  return null;
+}
+
+const isSmoothie = DRINK_TYPE === "smoothie";
+
 const DEFAULT_COFFEE_MENU =
   "Espresso,Cortado,Cappuccino,Flat White,Americano,Matcha Latte,Cold Brew,Iced Matcha,Iced Latte";
 const DEFAULT_SMOOTHIE_MENU =
   "Macarena(Strawberry, Pineapple, Apple, Passion Fruit, Goji, Vanilla),La Isla Bonita(Pineapple, Banana, Coconut Milk, Dates, Blue Spirulina),Calma(Mango, Pineapple, Spinach, Banana, Almonds, Ginger, Lemon)";
 
 const menuItems = parseMenuItems(
-  process.env.MENU_ITEMS ??
+  resolvedConfig.menuItems ||
     (isSmoothie ? DEFAULT_SMOOTHIE_MENU : DEFAULT_COFFEE_MENU),
 );
 export const menuNames = menuItems.map((i) => i.name);
@@ -126,7 +150,7 @@ async function appendSyncHistory(
     });
 }
 
-const eventDisplayName = process.env.EVENT_DISPLAY_NAME?.trim() || null;
+const eventDisplayName = resolvedConfig.eventDisplayName || null;
 
 export const WELCOME_GREETING = eventDisplayName
   ? `Welcome to ${eventDisplayName}! I'm Olivia. I can answer your Twilio questions or help with a ${drinkLabel} question. What's on your mind?`

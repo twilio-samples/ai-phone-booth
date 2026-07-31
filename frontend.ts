@@ -8,14 +8,19 @@ import { fileURLToPath } from "url";
 import { join, dirname } from "path";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import twilio from "twilio";
-import { WELCOME_GREETING, drinkLabel, drinkIcon, venueLabel, roleLabel, menuNames } from "./agent.ts";
-import { updateCallTracker, getSyncItem, SYNC_MAP_NAME, SYNC_ITEM_TTL, type CallTrackerItem, type CintelSummary } from "./sync.ts";
+import { WELCOME_GREETING, drinkLabel, drinkIcon, venueLabel, roleLabel, menuNames, validateMenuItems } from "./agent.ts";
+import { updateCallTracker, getSyncItem, SYNC_MAP_NAME, SYNC_ITEM_TTL, getBoothConfig, writeBoothConfig, type CallTrackerItem, type CintelSummary, type BoothConfig } from "./sync.ts";
+import { resolvedConfig, mergeBoothConfig } from "./config.ts";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 function serveTemplated(file: string, vars: Record<string, string>): string {
   let html = readFileSync(join(__dirname, "public", file), "utf8");
   for (const [k, v] of Object.entries(vars)) html = html.replaceAll(`%%${k}%%`, v);
   return html;
+}
+
+function escapeHtml(s: string): string {
+  return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!));
 }
 
 function buildHeader(heroImage: string, roleLabel: string, venueLabel: string, rightSlot: string, linked = false): string {
@@ -94,15 +99,15 @@ export async function registerFrontendRoutes(app: FastifyInstance): Promise<void
 
   app.get("/start", (_, reply) => {
     const html = serveTemplated("start.html", {
-      ATTRACT_MODE:    process.env.ATTRACT_MODE === "true" ? "true" : "false",
+      ATTRACT_MODE:    resolvedConfig.attractMode ? "true" : "false",
       ATTRACT_DEV:     process.env.ATTRACT_DEV  === "true" ? "true" : "false",
-      ALLOW_PHONE_NUMBER_OVERRIDE: process.env.ALLOW_PHONE_NUMBER_OVERRIDE === "true" ? "true" : "false",
+      ALLOW_PHONE_NUMBER_OVERRIDE: resolvedConfig.allowPhoneNumberOverride ? "true" : "false",
       VENUE_LABEL:     venueLabel,
       DRINK_LABEL:     drinkLabel,
       DRINK_LABEL_CAP: drinkLabelCap,
       DRINK_ICON:      drinkIcon,
       ROLE_LABEL:      roleLabel,
-      MENU_SUMMARY:    menuNames.slice(0, 5).join(", ") + (menuNames.length > 5 ? " and more" : ""),
+      MENU_SUMMARY:    escapeHtml(menuNames.slice(0, 5).join(", ") + (menuNames.length > 5 ? " and more" : "")),
       HERO_IMAGE:      heroImage,
     });
     reply.type("text/html").send(html);
@@ -160,7 +165,7 @@ export async function registerFrontendRoutes(app: FastifyInstance): Promise<void
     const client = getTwilio();
     const syncServiceSid = process.env.TWILIO_SYNC_SERVICE_SID!;
     const phoneOverride = body.phoneNumber?.trim();
-    const sipAddress = (process.env.ALLOW_PHONE_NUMBER_OVERRIDE === "true" && phoneOverride)
+    const sipAddress = (resolvedConfig.allowPhoneNumberOverride && phoneOverride)
       ? phoneOverride
       : process.env.SIP_PHONE_ADDRESS!;
     const from = process.env.TWILIO_PHONE_NUMBER!;
@@ -422,6 +427,89 @@ export async function registerFrontendRoutes(app: FastifyInstance): Promise<void
     return { total, orderRate, questionRate, bothRate, twilioRate, avgMessages, avgDuration, sentiment, drinkLabel };
   });
 
+  // ── GET /admin (basic-auth protected config page) ─────────────────────────
+  app.get("/admin", (req, reply) => {
+    if (!requireBasicAuth(req, reply)) return;
+    reply.sendFile("admin.html");
+  });
+
+  // ── GET /api/admin/config (current effective config + active call count) ──
+  app.get("/api/admin/config", async (req, reply) => {
+    if (!requireBasicAuth(req, reply)) return;
+
+    const client = getTwilio();
+    const syncServiceSid = process.env.TWILIO_SYNC_SERVICE_SID!;
+    const stored = await getBoothConfig();
+    const config = mergeBoothConfig(stored);
+
+    let activeCalls = 0;
+    try {
+      const rawItems = await client.sync.v1.services(syncServiceSid)
+        .syncMaps(SYNC_MAP_NAME).syncMapItems.list({ limit: 1000 });
+      activeCalls = rawItems.filter((i) => {
+        const status = (i.data as CallTrackerItem).status;
+        return status === "calling" || status === "in-progress";
+      }).length;
+    } catch (err) {
+      console.error("[admin] Failed to count active calls:", err);
+    }
+
+    return { config, activeCalls };
+  });
+
+  // ── POST /api/admin/config (validate, persist to Sync, restart to apply) ──
+  app.post("/api/admin/config", async (req, reply) => {
+    if (!requireBasicAuth(req, reply)) return;
+
+    const body = req.body as Record<string, unknown> ?? {};
+    const errors: Record<string, string> = {};
+
+    if (typeof body.attractMode !== "boolean") errors.attractMode = "Must be true or false.";
+    if (typeof body.allowPhoneNumberOverride !== "boolean") errors.allowPhoneNumberOverride = "Must be true or false.";
+
+    const drinkType = String(body.drinkType ?? "").trim().toLowerCase();
+    if (drinkType !== "coffee" && drinkType !== "smoothie") errors.drinkType = 'Must be "coffee" or "smoothie".';
+
+    const eventName = String(body.eventName ?? "").trim().toLowerCase();
+    if (!/^[a-z0-9]+(-[a-z0-9]+)*$/.test(eventName)) {
+      errors.eventName = "Must be lowercase letters, numbers, and hyphens only (e.g. wearedevs).";
+    }
+
+    const eventDisplayName = String(body.eventDisplayName ?? "").trim();
+    if (eventDisplayName.length > 80) errors.eventDisplayName = "Must be 80 characters or fewer.";
+    else if (/[<>]/.test(eventDisplayName)) errors.eventDisplayName = "Cannot contain < or > characters.";
+
+    const menuItems = String(body.menuItems ?? "").trim();
+    const menuError = validateMenuItems(menuItems);
+    if (menuError) errors.menuItems = menuError;
+
+    if (Object.keys(errors).length > 0) {
+      return reply.code(400).send({ success: false, errors });
+    }
+
+    const config: BoothConfig = {
+      attractMode: body.attractMode as boolean,
+      allowPhoneNumberOverride: body.allowPhoneNumberOverride as boolean,
+      drinkType,
+      eventName,
+      eventDisplayName,
+      menuItems,
+    };
+
+    try {
+      await writeBoothConfig(config);
+    } catch (err) {
+      console.error("[admin] Failed to write booth config:", err);
+      return reply.code(500).send({ success: false, error: String(err) });
+    }
+
+    reply.send({ success: true, restarting: true });
+    // Give the response time to flush before the process exits. docker-compose's
+    // restart:unless-stopped (or an equivalent supervisor in production) brings
+    // the process back up, which re-reads the Sync doc we just wrote.
+    setTimeout(() => process.exit(0), 500);
+  });
+
   // ── POST /api/beans/order (AI tool callback) ──────────────────────────────
   app.post("/api/beans/order", async (req) => {
     const headers = req.headers as Record<string, string>;
@@ -437,7 +525,7 @@ export async function registerFrontendRoutes(app: FastifyInstance): Promise<void
     const mixologistAuth = process.env.MIXOLOGIST_AUTH!;
 
     const externalPayload = {
-      event: process.env.EVENT_NAME ?? "signal-berlin",
+      event: resolvedConfig.eventName,
       order: {
         status: "queued",
         key: new Date().toISOString(),
