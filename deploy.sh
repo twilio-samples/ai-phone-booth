@@ -16,20 +16,17 @@ prompt() {
   local label="$2"
   local default_value="${3:-}"
   local current_value="${!var_name:-}"
-  local answer
 
   if [[ -n "$current_value" ]]; then
     return
   fi
 
   if [[ -n "$default_value" ]]; then
-    read -r -p "$label [$default_value]: " answer
-    printf -v "$var_name" '%s' "${answer:-$default_value}"
+    printf -v "$var_name" '%s' "$default_value"
+    echo "$label: $default_value"
   else
-    while [[ -z "${!var_name:-}" ]]; do
-      read -r -p "$label: " answer
-      printf -v "$var_name" '%s' "$answer"
-    done
+    echo "Missing required value: $label (set $var_name in $ENV_FILE)" >&2
+    exit 1
   fi
 }
 
