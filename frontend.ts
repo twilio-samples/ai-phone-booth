@@ -8,19 +8,20 @@ import { fileURLToPath } from "url";
 import { join, dirname } from "path";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import twilio from "twilio";
-import { WELCOME_GREETING, drinkLabel, drinkIcon, venueLabel, roleLabel, menuNames, validateMenuItems } from "./agent.ts";
-import { updateCallTracker, getSyncItem, SYNC_MAP_NAME, SYNC_ITEM_TTL, getBoothConfig, writeBoothConfig, type CallTrackerItem, type CintelSummary, type BoothConfig } from "./sync.ts";
-import { resolvedConfig, mergeBoothConfig } from "./config.ts";
+import { WELCOME_GREETING, drinkLabel, drinkIcon, venueLabel, roleLabel, menuNames } from "./agent.ts";
+import { updateCallTracker, getSyncItem, SYNC_MAP_NAME, SYNC_ITEM_TTL, getBoothConfig, writeBoothConfig, type CallTrackerItem, type CintelSummary } from "./sync.ts";
+import { resolvedConfig } from "./config.ts";
+import { mergeBoothConfig } from "./boothConfig.ts";
+import { heroImageForDrinkType } from "./heroImage.ts";
+import { shouldRetryCall } from "./callRetry.ts";
+import { escapeHtml } from "./html.ts";
+import { validateAdminConfig } from "./adminConfigValidation.ts";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 function serveTemplated(file: string, vars: Record<string, string>): string {
   let html = readFileSync(join(__dirname, "public", file), "utf8");
   for (const [k, v] of Object.entries(vars)) html = html.replaceAll(`%%${k}%%`, v);
   return html;
-}
-
-function escapeHtml(s: string): string {
-  return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!));
 }
 
 function buildHeader(heroImage: string, roleLabel: string, venueLabel: string, rightSlot: string, linked = false): string {
@@ -94,9 +95,7 @@ export async function registerFrontendRoutes(app: FastifyInstance): Promise<void
   // ── Clean HTML routes ─────────────────────────────────────────────────────
   app.get("/", (_, reply) => reply.redirect("/start"));
 
-  const heroImage     = drinkLabel === "smoothie" ? "smoothie.png"
-    : drinkLabel === "drinks" ? "barkeeper.png"
-    : "barista.png";
+  const heroImage     = heroImageForDrinkType(drinkLabel);
   const drinkLabelCap = drinkLabel.charAt(0).toUpperCase() + drinkLabel.slice(1);
 
   app.get("/start", (_, reply) => {
@@ -245,11 +244,10 @@ export async function registerFrontendRoutes(app: FastifyInstance): Promise<void
 
     if (!callSid || !callStatus) return { ok: true };
 
-    const retryable = callStatus === "busy" || callStatus === "no-answer";
     const entry = retryMap.get(callSid);
     const originalCallSid = entry?.originalCallSid ?? callSid;
 
-    if (retryable && entry && entry.retryCount < 2) {
+    if (entry && shouldRetryCall(callStatus, entry.retryCount)) {
       console.log(`[callStatus] ${callStatus} on ${callSid} (attempt ${entry.retryCount + 1}/3) — retrying in 2s`);
       await new Promise(r => setTimeout(r, 2000));
       try {
@@ -464,39 +462,11 @@ export async function registerFrontendRoutes(app: FastifyInstance): Promise<void
     if (!requireBasicAuth(req, reply)) return;
 
     const body = req.body as Record<string, unknown> ?? {};
-    const errors: Record<string, string> = {};
+    const { errors, config } = validateAdminConfig(body);
 
-    if (typeof body.attractMode !== "boolean") errors.attractMode = "Must be true or false.";
-    if (typeof body.allowPhoneNumberOverride !== "boolean") errors.allowPhoneNumberOverride = "Must be true or false.";
-
-    const drinkType = String(body.drinkType ?? "").trim().toLowerCase();
-    if (!["coffee", "smoothie", "drinks"].includes(drinkType)) errors.drinkType = 'Must be "coffee", "smoothie", or "drinks".';
-
-    const eventName = String(body.eventName ?? "").trim().toLowerCase();
-    if (!/^[a-z0-9]+(-[a-z0-9]+)*$/.test(eventName)) {
-      errors.eventName = "Must be lowercase letters, numbers, and hyphens only (e.g. wearedevs).";
-    }
-
-    const eventDisplayName = String(body.eventDisplayName ?? "").trim();
-    if (eventDisplayName.length > 80) errors.eventDisplayName = "Must be 80 characters or fewer.";
-    else if (/[<>]/.test(eventDisplayName)) errors.eventDisplayName = "Cannot contain < or > characters.";
-
-    const menuItems = String(body.menuItems ?? "").trim();
-    const menuError = validateMenuItems(menuItems);
-    if (menuError) errors.menuItems = menuError;
-
-    if (Object.keys(errors).length > 0) {
+    if (!config) {
       return reply.code(400).send({ success: false, errors });
     }
-
-    const config: BoothConfig = {
-      attractMode: body.attractMode as boolean,
-      allowPhoneNumberOverride: body.allowPhoneNumberOverride as boolean,
-      drinkType,
-      eventName,
-      eventDisplayName,
-      menuItems,
-    };
 
     try {
       await writeBoothConfig(config);
