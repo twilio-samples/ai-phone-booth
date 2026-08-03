@@ -94,8 +94,9 @@ export async function registerFrontendRoutes(app: FastifyInstance): Promise<void
   // ── Clean HTML routes ─────────────────────────────────────────────────────
   app.get("/", (_, reply) => reply.redirect("/start"));
 
-  // No dedicated hero image exists yet for "drinks" — falls back to the barista photo.
-  const heroImage     = drinkLabel === "smoothie" ? "smoothie.png" : "barista.png";
+  const heroImage     = drinkLabel === "smoothie" ? "smoothie.png"
+    : drinkLabel === "drinks" ? "barkeeper.png"
+    : "barista.png";
   const drinkLabelCap = drinkLabel.charAt(0).toUpperCase() + drinkLabel.slice(1);
 
   app.get("/start", (_, reply) => {
