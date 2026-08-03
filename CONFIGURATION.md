@@ -16,7 +16,7 @@ Every setting has an `.env` default (see `.env.example`). A subset of them — t
 | `SIP_PHONE_ADDRESS` | Yes | Default call destination — an E.164 number or SIP URI |
 | `OPENAI_API_KEY` | Yes | OpenAI API key for the Responses API |
 | `NGROK_BASE_URL` | Yes (local dev) | Public HTTPS URL Twilio delivers webhooks to |
-| `STATS_USER` / `STATS_PASS` | Yes | Basic auth for both `/stats` and `/admin` |
+| `ADMIN_USER` / `ADMIN_PASS` | Yes | Basic auth for both `/admin` and `/stats` |
 | `MIXOLOGIST_BASE_URL` / `MIXOLOGIST_AUTH` | Yes | Order-fulfillment backend base URL and `user:password` basic auth — see [Order fulfillment](#order-fulfillment) |
 | `TWILIO_TAC_KNOWLEDGE_BASE_ID` | No | Knowledge base SID — see [Knowledge base](#knowledge-base) |
 | `DRINK_TYPE` | No (admin-overridable) | See [Booth persona and menu](#booth-persona-and-menu) |
@@ -28,7 +28,7 @@ Every setting has an `.env` default (see `.env.example`). A subset of them — t
 
 ## Runtime config via /admin
 
-Visit `/admin` (protected by `STATS_USER`/`STATS_PASS`) to change the following without editing `.env` or redeploying: attract mode, phone number override, drink type, event name, event display name, and menu items. The page shows the current effective config and the number of active calls, validates input, writes it to the Sync document, and restarts the process to apply it.
+Visit `/admin` (protected by `ADMIN_USER`/`ADMIN_PASS`) to change the following without editing `.env` or redeploying: attract mode, phone number override, drink type, event name, event display name, and menu items. The page shows the current effective config and the number of active calls, validates input, writes it to the Sync document, and restarts the process to apply it.
 
 ## Booth persona and menu
 

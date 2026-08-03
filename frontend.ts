@@ -66,8 +66,8 @@ function requireBasicAuth(req: FastifyRequest, reply: FastifyReply): boolean {
   if (header.startsWith("Basic ")) {
     const decoded = Buffer.from(header.slice(6), "base64").toString("utf8");
     const [user, pass] = decoded.split(":");
-    const expectedUser = process.env.STATS_USER!;
-    const expectedPass = process.env.STATS_PASS!;
+    const expectedUser = process.env.ADMIN_USER!;
+    const expectedPass = process.env.ADMIN_PASS!;
     if (user === expectedUser && pass === expectedPass) return true;
   }
   reply

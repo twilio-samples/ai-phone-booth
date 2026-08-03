@@ -53,7 +53,7 @@ All required variables are in `.env.example`. Key ones:
 - `TWILIO_SYNC_SERVICE_SID` — shared between backend and browser Sync client, and holds the `/admin` config document
 - `TWILIO_API_KEY` / `TWILIO_API_SECRET` — used to mint Sync tokens for the browser
 - `MIXOLOGIST_BASE_URL` / `MIXOLOGIST_AUTH` — required; order submission has no fallback without these
-- `STATS_USER` / `STATS_PASS` — basic auth for both `/stats` and `/admin`
+- `ADMIN_USER` / `ADMIN_PASS` — basic auth for both `/admin` and `/stats`
 - `DRINK_TYPE` / `EVENT_NAME` / `EVENT_DISPLAY_NAME` / `MENU_ITEMS` — booth persona/menu config, all overridable at runtime via `/admin` (persisted to Sync, applied by restarting the process — see `config.ts`)
 
 ## Common tasks

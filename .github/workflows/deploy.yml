@@ -42,7 +42,7 @@ jobs:
           TWILIO_CONVERSATION_CONFIGURATION_ID: ${{ secrets.TWILIO_CONVERSATION_CONFIGURATION_ID }}
           TWILIO_TAC_CI_CONFIGURATION_ID: ${{ secrets.TWILIO_TAC_CI_CONFIGURATION_ID }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          STATS_PASS: ${{ secrets.STATS_PASS }}
+          ADMIN_PASS: ${{ secrets.ADMIN_PASS }}
           MIXOLOGIST_AUTH: ${{ secrets.MIXOLOGIST_AUTH }}
           TWILIO_TAC_KNOWLEDGE_BASE_ID: ${{ secrets.TWILIO_TAC_KNOWLEDGE_BASE_ID }}
           SIP_PHONE_ADDRESS: ${{ vars.SIP_PHONE_ADDRESS }}
@@ -50,7 +50,7 @@ jobs:
           EVENT_NAME: ${{ vars.EVENT_NAME }}
           EVENT_DISPLAY_NAME: ${{ vars.EVENT_DISPLAY_NAME }}
           MENU_ITEMS: ${{ vars.MENU_ITEMS }}
-          STATS_USER: ${{ vars.STATS_USER }}
+          ADMIN_USER: ${{ vars.ADMIN_USER }}
           MIXOLOGIST_BASE_URL: ${{ vars.MIXOLOGIST_BASE_URL }}
         run: |
           write_var() {
@@ -66,7 +66,7 @@ jobs:
             write_var TWILIO_CONVERSATION_CONFIGURATION_ID
             write_var TWILIO_TAC_CI_CONFIGURATION_ID
             write_var OPENAI_API_KEY
-            write_var STATS_PASS
+            write_var ADMIN_PASS
             write_var MIXOLOGIST_AUTH
             write_var TWILIO_TAC_KNOWLEDGE_BASE_ID
             write_var SIP_PHONE_ADDRESS
@@ -74,7 +74,7 @@ jobs:
             write_var EVENT_NAME
             write_var EVENT_DISPLAY_NAME
             write_var MENU_ITEMS
-            write_var STATS_USER
+            write_var ADMIN_USER
             write_var MIXOLOGIST_BASE_URL
           } > .env.local
 
