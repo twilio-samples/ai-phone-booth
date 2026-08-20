@@ -2,25 +2,42 @@
 
 An AI voice agent for phone calls powered by [Twilio Agent Connect (TAC)](https://www.twilio.com/docs/agent-connect), OpenAI, and Twilio Conversation Intelligence. First built as a conference booth experience for **Twilio SIGNAL World Tour Berlin 2026**, where attendees could call a physical phone and chat with "Olivia," an AI barista at the Twilio Cafe.
 
+The persona, menu, and most other booth-specific behavior are configurable per event rather than hardcoded — see [CONFIGURATION.md](CONFIGURATION.md) for the full list of options.
+
 ## What it does
 
-- Initiates outbound calls to any phone number or SIP address
+- Initiates outbound calls to any phone number or SIP address, and automatically retries if the call comes back busy or no-answer
 - Connects the caller to an AI agent (OpenAI Responses API via WebSocket) through Twilio Agent Connect
-- The AI agent can answer coffee questions, take orders, and end the call using function calling
+- The AI agent answers Twilio product questions, answers drink questions, and takes drink orders using function calling
+- Can optionally look things up in a Twilio Knowledge Base to answer domain-specific questions
+- Forwards submitted orders to an external order-fulfillment backend
 - Tracks every call in Twilio Sync for real-time frontend updates
 - Runs Conversation Intelligence to capture sentiment and summaries post-call
-- Exposes a protected stats dashboard at `/stats`
+- Exposes a protected stats dashboard and a runtime config page for adjusting booth settings without redeploying
 
 ## Architecture
 
 | File | Responsibility |
 |------|----------------|
 | [server.ts](server.ts) | Fastify HTTP/WebSocket server, TAC initialization, static file serving |
-| [agent.ts](agent.ts) | OpenAI Responses API streaming, session state, tool execution |
-| [frontend.ts](frontend.ts) | API routes, Sync token generation, Conversation Intelligence callback, stats dashboard |
+| [agent.ts](agent.ts) | OpenAI Responses API streaming, session state, tool execution, drink-type presets |
+| [frontend.ts](frontend.ts) | API routes, Sync token generation, Conversation Intelligence callback, order fulfillment, stats dashboard, admin config API |
+| [config.ts](config.ts) | Resolves runtime booth config — merges admin overrides over `.env` defaults |
+| [sync.ts](sync.ts) | Twilio Sync helpers — call tracker map items and the booth config document |
+| [scripts/reset-stats.ts](scripts/reset-stats.ts) | Utility to clear out call tracker Sync map items (`pnpm reset-stats`) |
 | [public/](public/) | Static HTML pages for the booth UI |
 
----
+### Agent tools
+
+The agent drives everything through OpenAI function calling:
+
+| Tool | What it does |
+|------|-------------|
+| `search_knowledge_base` | Looks up domain-specific facts in a configured Knowledge Base (only present if one is configured) |
+| `complete_twilio_question` | Logs an answered Twilio product question |
+| `complete_drink_question` | Logs an answered drink question |
+| `submit_order` | Places a drink order, forwards it to the order-fulfillment backend, and returns an order number |
+| `end_call` | Hangs up the call |
 
 ## Setup
 
@@ -76,7 +93,7 @@ Go to **Products & Services → Conversation Intelligence → Intelligence Confi
    - Select **Sentiment** and **Summary**, click **Next**
    - Set both rule parameters to **Automatic**, click **Next**
    - Trigger: **At conversation end**
-   - Action webhook: Add the URL to your local dev enviroment or the prod deployment https://tac-demo.com/intelligence-results with HTTP POST 
+   - Action webhook: point it at your deployment's `/intelligence-results` endpoint, HTTP POST
    - Click **Next**
    - On the **Add context** page, enable **Conversation Memory**
    - Click **Next**, review the summary, click **Create rule**
@@ -85,7 +102,11 @@ Go to **Products & Services → Conversation Intelligence → Intelligence Confi
 
 5. **Conversation configuration SID** — go to **Products & Services → Conversation Orchestrator → Conversation Configurations**. Find the configuration created in step 1 and copy its SID (pattern: `conv_configuration_000aaabbb111`) — save it as `TWILIO_CONVERSATION_CONFIGURATION_ID`.
 
-### 3. Local development
+### 3. Order fulfillment backend
+
+Orders placed by callers are forwarded to an external fulfillment backend — set `MIXOLOGIST_BASE_URL` and `MIXOLOGIST_AUTH` to point at it. This is required: the order-submission route has no fallback if these aren't set. See [CONFIGURATION.md](CONFIGURATION.md) for the payload shape.
+
+### 4. Local development
 
 Install dependencies and copy the env file:
 
@@ -108,55 +129,16 @@ pnpm dev
 
 The booth UI is at [http://localhost:8000](http://localhost:8000).
 
-### 4. Production deployment
+### 5. Deploying
 
-Deploy to any platform that provides a public HTTPS URL (Fly.io, Railway, Render, Cloud Run, etc.). Set the following environment variables in your hosting platform instead of a `.env` file:
+Deploy to any host that can run a long-lived Node process and give it a public HTTPS URL. Set the environment variables from `.env.example` (see [CONFIGURATION.md](CONFIGURATION.md) for the full reference) in your hosting environment, then run:
 
-| Variable | Value |
-|----------|-------|
-| `TWILIO_ACCOUNT_SID` | Your account SID (`AC...`) |
-| `TWILIO_API_KEY` | API key SID (`SK...`) |
-| `TWILIO_API_SECRET` | API key secret |
-| `TWILIO_PHONE_NUMBER` | Your Twilio outbound number |
-| `TWILIO_SYNC_SERVICE_SID` | Sync service SID (`IS...`) |
-| `TWILIO_CONVERSATION_CONFIGURATION_ID` | Conversation Intelligence config SID |
-| `TWILIO_TAC_CI_CONFIGURATION_ID` | TAC CI config SID |
-| `SIP_PHONE_ADDRESS` | SIP URI for the booth phone |
-| `OPENAI_API_KEY` | OpenAI API key |
-| `TWILIO_TAC_KNOWLEDGE_BASE_ID` | Knowledge base SID (`know_knowledgebase_...`) for Guinndex pint price lookups (optional) |
-| `STATS_USER` / `STATS_PASS` | Basic auth for the `/stats` dashboard |
+```bash
+pnpm start
+```
 
-Start command: `pnpm start`
+The runtime config page persists changes and then restarts the process to apply them (see [CONFIGURATION.md](CONFIGURATION.md)). Whatever you deploy to needs to bring the process back up automatically when it exits — check that your host's restart/process-supervision policy does this, otherwise a config change will take the booth offline until someone restarts it manually.
 
-## Attract mode
+## Maintenance
 
-Attract mode is designed for unattended event booths. When no one is interacting with the screen, a popup appears after a random idle period inviting passers-by to pick up the phone. As soon as the physical phone is answered, the popup closes and the browser navigates to the live call view.
-
-Enable it by setting environment variables before starting the server:
-
-| Variable | Effect |
-|----------|--------|
-| `ATTRACT_MODE=true` | Popup fires after a random 5–10 minute idle interval, then repeats |
-| `ATTRACT_DEV=true` | Popup fires once after 20 seconds — useful for testing the flow without waiting |
-
-Any interaction with the page (mouse move, keypress, touch) resets the idle timer.
-
-## Agent tools
-
-| Tool | What it does |
-|------|-------------|
-| `search_<knowledge_base_name>` | Searches the Guinndex knowledge base for pint price data (injected at startup if `TWILIO_TAC_KNOWLEDGE_BASE_ID` is set) |
-| `complete_guindex_question` | Logs an answered Guinndex pint price question to the backend |
-| `complete_coffee_question` | Logs an answered coffee question to the backend |
-| `submit_order` | Places a coffee order and returns an order number |
-| `end_call` | Hangs up the call via Twilio |
-
-## Stats dashboard
-
-Navigate to `/stats` and authenticate with `STATS_USER` / `STATS_PASS`. The dashboard shows:
-
-- Total calls and completion rate
-- Order placement rate and question answering rate
-- Average messages per call and call duration
-- Sentiment breakdown (positive / neutral / negative / unknown)
-
+`pnpm reset-stats` clears out the call tracker Sync map used by the stats dashboard and the runtime config page's active-call count. Use it to reset stats between events without deleting the Sync service itself.

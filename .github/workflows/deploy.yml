@@ -1,0 +1,82 @@
+name: Deploy
+
+on:
+  pull_request:
+    types: [closed]
+    branches: [main]
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  deploy:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-x64
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Azure login
+        env:
+          AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+          AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+          AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+        run: |
+          ID_TOKEN=$(curl -sSL -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=api://AzureADTokenExchange" | jq -r '.value')
+          az login --service-principal \
+            --username "$AZURE_CLIENT_ID" \
+            --tenant "$AZURE_TENANT_ID" \
+            --federated-token "$ID_TOKEN" \
+            --output none
+          az account set --subscription "$AZURE_SUBSCRIPTION_ID"
+
+      - name: Write deploy env file
+        env:
+          TWILIO_ACCOUNT_SID: ${{ secrets.TWILIO_ACCOUNT_SID }}
+          TWILIO_API_KEY: ${{ secrets.TWILIO_API_KEY }}
+          TWILIO_API_SECRET: ${{ secrets.TWILIO_API_SECRET }}
+          TWILIO_AUTH_TOKEN: ${{ secrets.TWILIO_AUTH_TOKEN }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ADMIN_PASS: ${{ secrets.ADMIN_PASS }}
+          MIXOLOGIST_AUTH: ${{ secrets.MIXOLOGIST_AUTH }}
+          TWILIO_PHONE_NUMBER: ${{ vars.TWILIO_PHONE_NUMBER }}
+          TWILIO_SYNC_SERVICE_SID: ${{ vars.TWILIO_SYNC_SERVICE_SID }}
+          TWILIO_CONVERSATION_CONFIGURATION_ID: ${{ vars.TWILIO_CONVERSATION_CONFIGURATION_ID }}
+          TWILIO_TAC_CI_CONFIGURATION_ID: ${{ vars.TWILIO_TAC_CI_CONFIGURATION_ID }}
+          TWILIO_TAC_KNOWLEDGE_BASE_ID: ${{ vars.TWILIO_TAC_KNOWLEDGE_BASE_ID }}
+          SIP_PHONE_ADDRESS: ${{ vars.SIP_PHONE_ADDRESS }}
+          DRINK_TYPE: ${{ vars.DRINK_TYPE }}
+          EVENT_NAME: ${{ vars.EVENT_NAME }}
+          EVENT_DISPLAY_NAME: ${{ vars.EVENT_DISPLAY_NAME }}
+          MENU_ITEMS: ${{ vars.MENU_ITEMS }}
+          ADMIN_USER: ${{ vars.ADMIN_USER }}
+          MIXOLOGIST_BASE_URL: ${{ vars.MIXOLOGIST_BASE_URL }}
+        run: |
+          write_var() {
+            printf '%s=%q\n' "$1" "${!1}"
+          }
+          {
+            write_var TWILIO_ACCOUNT_SID
+            write_var TWILIO_API_KEY
+            write_var TWILIO_API_SECRET
+            write_var TWILIO_AUTH_TOKEN
+            write_var TWILIO_PHONE_NUMBER
+            write_var TWILIO_SYNC_SERVICE_SID
+            write_var TWILIO_CONVERSATION_CONFIGURATION_ID
+            write_var TWILIO_TAC_CI_CONFIGURATION_ID
+            write_var OPENAI_API_KEY
+            write_var ADMIN_PASS
+            write_var MIXOLOGIST_AUTH
+            write_var TWILIO_TAC_KNOWLEDGE_BASE_ID
+            write_var SIP_PHONE_ADDRESS
+            write_var DRINK_TYPE
+            write_var EVENT_NAME
+            write_var EVENT_DISPLAY_NAME
+            write_var MENU_ITEMS
+            write_var ADMIN_USER
+            write_var MIXOLOGIST_BASE_URL
+          } > .env.local
+
+      - name: Deploy
+        run: ./deploy.sh

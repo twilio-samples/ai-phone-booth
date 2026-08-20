@@ -8,13 +8,18 @@
 	"scripts": {
 		"start": "tsx server.ts",
 		"dev": "tsx server.ts",
-		"reset-stats": "tsx scripts/reset-stats.ts"
+		"reset-stats": "tsx scripts/reset-stats.ts",
+		"test": "vitest run",
+		"test:watch": "vitest",
+		"test:e2e": "playwright test"
 	},
 	"devDependencies": {
+		"@playwright/test": "^1.62.1",
 		"@types/node": "^26.1.0",
 		"@types/ws": "^8.18.1",
 		"tsx": "^4.19.4",
-		"typescript": "^6.0.3"
+		"typescript": "^6.0.3",
+		"vitest": "^4.1.10"
 	},
 	"dependencies": {
 		"@fastify/static": "^9.1.3",

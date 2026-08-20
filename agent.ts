@@ -11,6 +11,8 @@ import type {
   TACMemoryResponse,
 } from "twilio-agent-connect";
 import { updateCallTracker } from "./sync.ts";
+import { resolvedConfig } from "./config.ts";
+import { parseMenuItems } from "./menu.ts";
 
 config();
 
@@ -31,43 +33,23 @@ const BASE_URL = `http://localhost:${process.env.PORT ?? 8000}/api/beans`;
 
 // ── Drink-type / menu config ───────────────────────────────────────────────────
 
-const DRINK_TYPE = (process.env.DRINK_TYPE ?? "coffee").toLowerCase();
-const isSmoothie = DRINK_TYPE === "smoothie";
-
-function parseMenuItems(raw: string): { name: string; description: string }[] {
-  const entries: string[] = [];
-  let depth = 0, start = 0;
-  for (let i = 0; i < raw.length; i++) {
-    if (raw[i] === "(") depth++;
-    else if (raw[i] === ")") depth--;
-    else if (raw[i] === "," && depth === 0) {
-      entries.push(raw.slice(start, i).trim());
-      start = i + 1;
-    }
-  }
-  entries.push(raw.slice(start).trim());
-  return entries
-    .map((entry) => {
-      const p = entry.indexOf("(");
-      return p === -1
-        ? { name: entry, description: "" }
-        : {
-          name: entry.slice(0, p).trim(),
-          description: entry.slice(p + 1, entry.lastIndexOf(")")).trim(),
-        };
-    })
-    .filter((i) => i.name);
-}
+const DRINK_TYPE = resolvedConfig.drinkType;
 
 const DEFAULT_COFFEE_MENU =
   "Espresso,Cortado,Cappuccino,Flat White,Americano,Matcha Latte,Cold Brew,Iced Matcha,Iced Latte";
 const DEFAULT_SMOOTHIE_MENU =
   "Macarena(Strawberry, Pineapple, Apple, Passion Fruit, Goji, Vanilla),La Isla Bonita(Pineapple, Banana, Coconut Milk, Dates, Blue Spirulina),Calma(Mango, Pineapple, Spinach, Banana, Almonds, Ginger, Lemon)";
+const DEFAULT_DRINKS_MENU =
+  "Irish Lovers(Espresso, brown sugar, Jameson Irish Whiskey, topped with a layer of fresh cream infused with macadamia essence),Shakerato Lovers(Espresso shaken with ice, Leblon Cachaça, lemon syrup and sugarcane molasses),Blue Gin Lovers(Espresso, blue curaçao, tonic water and gin, garnished with a lemon slice)";
 
-const menuItems = parseMenuItems(
-  process.env.MENU_ITEMS ??
-    (isSmoothie ? DEFAULT_SMOOTHIE_MENU : DEFAULT_COFFEE_MENU),
-);
+const DRINK_TYPE_PRESETS: Record<string, { venueLabel: string; roleLabel: string; icon: string; defaultMenu: string }> = {
+  coffee:   { venueLabel: "Twilio Cafe",  roleLabel: "Barista",            icon: "☕", defaultMenu: DEFAULT_COFFEE_MENU },
+  smoothie: { venueLabel: "Smoothie Bar", roleLabel: "Smoothie Bartender", icon: "🍹", defaultMenu: DEFAULT_SMOOTHIE_MENU },
+  drinks:   { venueLabel: "Cocktail Bar", roleLabel: "Mixologist",         icon: "🍸", defaultMenu: DEFAULT_DRINKS_MENU },
+};
+const drinkPreset = DRINK_TYPE_PRESETS[DRINK_TYPE] ?? DRINK_TYPE_PRESETS.coffee;
+
+const menuItems = parseMenuItems(resolvedConfig.menuItems || drinkPreset.defaultMenu);
 export const menuNames = menuItems.map((i) => i.name);
 const menuForPrompt = menuItems.map((i) =>
   i.description ? `${i.name} (${i.description})` : i.name
@@ -75,9 +57,9 @@ const menuForPrompt = menuItems.map((i) =>
 
 export const drinkLabel = DRINK_TYPE;
 const drinkLabelUp = DRINK_TYPE.toUpperCase();
-export const venueLabel = isSmoothie ? "Smoothie Bar" : "Twilio Cafe";
-export const roleLabel = isSmoothie ? "Smoothie Bartender" : "Barista";
-export const drinkIcon = isSmoothie ? "🍹" : "☕";
+export const venueLabel = drinkPreset.venueLabel;
+export const roleLabel = drinkPreset.roleLabel;
+export const drinkIcon = drinkPreset.icon;
 
 let knowledgeSearchImpl:
   | ((args: { query: string }) => Promise<unknown>)
@@ -126,7 +108,7 @@ async function appendSyncHistory(
     });
 }
 
-const eventDisplayName = process.env.EVENT_DISPLAY_NAME?.trim() || null;
+const eventDisplayName = resolvedConfig.eventDisplayName || null;
 
 export const WELCOME_GREETING = eventDisplayName
   ? `Welcome to ${eventDisplayName}! I'm Olivia. I can answer your Twilio questions or help with a ${drinkLabel} question. What's on your mind?`

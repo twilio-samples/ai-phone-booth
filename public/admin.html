@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<link rel="icon" href="/favicon.ico" />
+<title>Twilio Booth Admin</title>
+<style>
+  :root {
+    --bg: #0d0d12;
+    --panel: #161622;
+    --panel2: #1e1e2e;
+    --accent: #7c5cfc;
+    --accent2: #e8a838;
+    --green: #3ecf8e;
+    --yellow: #f5c842;
+    --red: #ff4d6d;
+    --text: #f0eef8;
+    --muted: #8b88a8;
+    --radius: 18px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: "Segoe UI", system-ui, sans-serif;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .blob {
+    position: fixed;
+    border-radius: 50%;
+    filter: blur(140px);
+    opacity: 0.10;
+    pointer-events: none;
+  }
+  .blob-1 { width: 500px; height: 500px; background: var(--accent); top: -160px; right: -100px; }
+  .blob-2 { width: 400px; height: 400px; background: var(--accent2); bottom: -120px; left: -80px; }
+
+  header {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 20px 48px;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+    background: var(--panel);
+    position: relative;
+    z-index: 1;
+  }
+  .header-icon { font-size: 30px; }
+  .header-title { font-size: 22px; font-weight: 800; }
+  .header-sub { font-size: 13px; color: var(--muted); margin-top: 1px; }
+  .active-calls-badge {
+    margin-left: auto;
+    padding: 8px 18px;
+    border-radius: 50px;
+    background: rgba(245,200,66,0.12);
+    border: 1px solid rgba(245,200,66,0.35);
+    color: var(--yellow);
+    font-size: 13px;
+    font-weight: 600;
+    display: none;
+  }
+  .active-calls-badge.visible { display: inline-block; }
+
+  main {
+    flex: 1;
+    width: 100%;
+    max-width: 720px;
+    margin: 0 auto;
+    padding: 40px 48px 80px;
+    display: flex;
+    flex-direction: column;
+    gap: 28px;
+    position: relative;
+    z-index: 1;
+  }
+
+  .section-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 2.5px;
+    color: var(--muted);
+    margin-bottom: 16px;
+  }
+
+  .panel-card {
+    background: var(--panel);
+    border: 1px solid rgba(255,255,255,0.07);
+    border-radius: var(--radius);
+    padding: 28px 32px;
+    display: flex;
+    flex-direction: column;
+    gap: 22px;
+  }
+
+  .field { display: flex; flex-direction: column; gap: 8px; }
+  .field-label { font-size: 14px; font-weight: 600; }
+  .field-hint { font-size: 12px; color: var(--muted); line-height: 1.4; }
+  .field-error { font-size: 12px; color: var(--red); min-height: 15px; }
+
+  .text-input, .textarea-input, .select-input {
+    background: var(--panel2);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 10px;
+    color: var(--text);
+    font-family: inherit;
+    font-size: 14px;
+    padding: 12px 14px;
+    outline: none;
+    transition: border-color 0.15s;
+  }
+  .text-input:focus, .textarea-input:focus, .select-input:focus { border-color: var(--accent); }
+  .text-input.invalid, .textarea-input.invalid { border-color: var(--red); }
+  .textarea-input { resize: vertical; min-height: 90px; line-height: 1.5; }
+
+  .toggle-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+  }
+  .toggle-text { display: flex; flex-direction: column; gap: 3px; }
+  .switch {
+    position: relative;
+    width: 46px;
+    height: 26px;
+    flex-shrink: 0;
+  }
+  .switch input { opacity: 0; width: 0; height: 0; }
+  .switch-track {
+    position: absolute;
+    inset: 0;
+    background: rgba(255,255,255,0.12);
+    border-radius: 30px;
+    cursor: pointer;
+    transition: background 0.2s;
+  }
+  .switch-track::before {
+    content: '';
+    position: absolute;
+    width: 20px; height: 20px;
+    left: 3px; top: 3px;
+    background: #fff;
+    border-radius: 50%;
+    transition: transform 0.2s;
+  }
+  .switch input:checked + .switch-track { background: var(--accent); }
+  .switch input:checked + .switch-track::before { transform: translateX(20px); }
+
+  .menu-preview {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .menu-preview-item b { color: var(--text); }
+
+  .apply-bar {
+    position: sticky;
+    bottom: 0;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 16px 0 0;
+  }
+  .apply-btn {
+    background: var(--accent);
+    border: none;
+    color: #fff;
+    font-size: 15px;
+    font-weight: 700;
+    padding: 14px 28px;
+    border-radius: 12px;
+    cursor: pointer;
+    transition: background 0.15s, opacity 0.15s;
+  }
+  .apply-btn:hover { background: #8f70ff; }
+  .apply-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .status-msg { font-size: 13px; color: var(--muted); }
+  .status-msg.error { color: var(--red); }
+  .status-msg.success { color: var(--green); }
+
+  .loading-state { color: var(--muted); font-style: italic; font-size: 14px; }
+</style>
+</head>
+<body>
+<div class="blob blob-1"></div>
+<div class="blob blob-2"></div>
+
+<header>
+  <div class="header-icon">⚙️</div>
+  <div>
+    <div class="header-title">Booth Admin</div>
+    <div class="header-sub">Runtime configuration — overrides env-var defaults</div>
+  </div>
+  <div class="active-calls-badge" id="activeCallsBadge"></div>
+</header>
+
+<main id="main">
+  <div class="loading-state" id="loadingState">Loading current config…</div>
+</main>
+
+<template id="formTemplate">
+  <div class="panel-card">
+    <div class="section-label">Behavior</div>
+
+    <div class="toggle-row">
+      <div class="toggle-text">
+        <div class="field-label">Attract Mode</div>
+        <div class="field-hint">Show an idle popup inviting passers-by to pick up the phone.</div>
+      </div>
+      <label class="switch">
+        <input type="checkbox" id="attractMode" />
+        <span class="switch-track"></span>
+      </label>
+    </div>
+
+    <div class="toggle-row">
+      <div class="toggle-text">
+        <div class="field-label">Allow Phone Number Override</div>
+        <div class="field-hint">Let visitors type a phone number on the start page instead of always calling the default line.</div>
+      </div>
+      <label class="switch">
+        <input type="checkbox" id="allowPhoneNumberOverride" />
+        <span class="switch-track"></span>
+      </label>
+    </div>
+  </div>
+
+  <div class="panel-card">
+    <div class="section-label">Event</div>
+
+    <div class="field">
+      <div class="field-label">Drink Type</div>
+      <select class="select-input" id="drinkType">
+        <option value="coffee">Coffee</option>
+        <option value="smoothie">Smoothie</option>
+        <option value="drinks">Drinks (cocktails)</option>
+      </select>
+      <div class="field-hint">Controls the persona, menu defaults, and spoken vocabulary ("coffee" / "smoothie" / "drinks").</div>
+    </div>
+
+    <div class="field">
+      <div class="field-label">Event Name</div>
+      <input class="text-input" id="eventName" placeholder="wearedevs" />
+      <div class="field-hint">Lowercase letters, numbers, and hyphens only. Sent as the event identifier on submitted orders.</div>
+      <div class="field-error" id="eventNameError"></div>
+    </div>
+
+    <div class="field">
+      <div class="field-label">Event Display Name</div>
+      <input class="text-input" id="eventDisplayName" placeholder="WeAreDevelopers World Congress" />
+      <div class="field-hint">Spoken in the welcome greeting and system prompt. Leave blank to omit any event mention.</div>
+      <div class="field-error" id="eventDisplayNameError"></div>
+    </div>
+  </div>
+
+  <div class="panel-card">
+    <div class="section-label">Menu</div>
+
+    <div class="field">
+      <div class="field-label">Menu Items</div>
+      <textarea class="textarea-input" id="menuItems" placeholder="Espresso,Cortado,Cappuccino"></textarea>
+      <div class="field-hint">Comma-separated. Use Name(ingredient, ingredient) for items with a description.</div>
+      <div class="field-error" id="menuItemsError"></div>
+      <div class="menu-preview" id="menuPreview"></div>
+    </div>
+  </div>
+
+  <div class="apply-bar">
+    <button class="apply-btn" id="applyBtn">Apply Changes</button>
+    <div class="status-msg" id="statusMsg"></div>
+  </div>
+</template>
+
+<script>
+const main = document.getElementById('main');
+const loadingState = document.getElementById('loadingState');
+const activeCallsBadge = document.getElementById('activeCallsBadge');
+
+let activeCalls = 0;
+
+function slugify(v) { return v.trim().toLowerCase(); }
+
+function validateEventName(v) {
+  if (!/^[a-z0-9]+(-[a-z0-9]+)*$/.test(v)) {
+    return 'Must be lowercase letters, numbers, and hyphens only (e.g. wearedevs).';
+  }
+  return null;
+}
+
+function validateEventDisplayName(v) {
+  if (v.length > 80) return 'Must be 80 characters or fewer.';
+  if (/[<>]/.test(v)) return 'Cannot contain < or > characters.';
+  return null;
+}
+
+// Mirrors agent.ts's parseMenuItems/validateMenuItems.
+function parseMenuItems(raw) {
+  const entries = [];
+  let depth = 0, start = 0;
+  for (let i = 0; i < raw.length; i++) {
+    if (raw[i] === '(') depth++;
+    else if (raw[i] === ')') depth--;
+    else if (raw[i] === ',' && depth === 0) {
+      entries.push(raw.slice(start, i).trim());
+      start = i + 1;
+    }
+  }
+  entries.push(raw.slice(start).trim());
+  return entries.map((entry) => {
+    const p = entry.indexOf('(');
+    return p === -1
+      ? { name: entry, description: '' }
+      : { name: entry.slice(0, p).trim(), description: entry.slice(p + 1, entry.lastIndexOf(')')).trim() };
+  }).filter((i) => i.name);
+}
+
+function validateMenuItems(raw) {
+  const trimmed = raw.trim();
+  if (!trimmed) return 'Menu items cannot be empty.';
+  let depth = 0;
+  for (const ch of trimmed) {
+    if (ch === '(') depth++;
+    else if (ch === ')') { depth--; if (depth < 0) return "Unmatched ')' in menu items."; }
+  }
+  if (depth !== 0) return "Unmatched '(' in menu items.";
+  const items = parseMenuItems(trimmed);
+  if (!items.length) return 'Menu items cannot be empty.';
+  for (const item of items) {
+    if (/[()]/.test(item.name)) return `Invalid menu item name: "${item.name}".`;
+  }
+  return null;
+}
+
+function renderMenuPreview(raw) {
+  const preview = document.getElementById('menuPreview');
+  const err = validateMenuItems(raw);
+  if (err) { preview.innerHTML = ''; return; }
+  const items = parseMenuItems(raw);
+  preview.innerHTML = items.map(i =>
+    `<div class="menu-preview-item"><b>${escapeHtml(i.name)}</b>${i.description ? ' — ' + escapeHtml(i.description) : ''}</div>`
+  ).join('');
+}
+
+function escapeHtml(s) {
+  return s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+function setFieldError(id, message) {
+  const errorEl = document.getElementById(id + 'Error');
+  const inputEl = document.getElementById(id);
+  if (errorEl) errorEl.textContent = message ?? '';
+  if (inputEl) inputEl.classList.toggle('invalid', !!message);
+}
+
+function validateAll() {
+  const eventNameErr = validateEventName(document.getElementById('eventName').value.trim());
+  const eventDisplayNameErr = validateEventDisplayName(document.getElementById('eventDisplayName').value.trim());
+  const menuItemsErr = validateMenuItems(document.getElementById('menuItems').value);
+
+  setFieldError('eventName', eventNameErr);
+  setFieldError('eventDisplayName', eventDisplayNameErr);
+  setFieldError('menuItems', menuItemsErr);
+
+  document.getElementById('applyBtn').disabled = !!(eventNameErr || eventDisplayNameErr || menuItemsErr);
+  return !eventNameErr && !eventDisplayNameErr && !menuItemsErr;
+}
+
+async function init() {
+  const res = await fetch('/api/admin/config');
+  if (!res.ok) {
+    loadingState.textContent = 'Failed to load config.';
+    return;
+  }
+  const { config, activeCalls: n } = await res.json();
+  activeCalls = n;
+
+  if (activeCalls > 0) {
+    activeCallsBadge.textContent = `${activeCalls} call${activeCalls === 1 ? '' : 's'} in progress`;
+    activeCallsBadge.classList.add('visible');
+  }
+
+  main.innerHTML = '';
+  const tpl = document.getElementById('formTemplate');
+  main.appendChild(tpl.content.cloneNode(true));
+
+  document.getElementById('attractMode').checked = !!config.attractMode;
+  document.getElementById('allowPhoneNumberOverride').checked = !!config.allowPhoneNumberOverride;
+  document.getElementById('drinkType').value = config.drinkType;
+  document.getElementById('eventName').value = config.eventName;
+  document.getElementById('eventDisplayName').value = config.eventDisplayName;
+  document.getElementById('menuItems').value = config.menuItems;
+  renderMenuPreview(config.menuItems);
+
+  document.getElementById('eventName').addEventListener('input', (e) => {
+    e.target.value = slugify(e.target.value);
+    validateAll();
+  });
+  document.getElementById('eventDisplayName').addEventListener('input', validateAll);
+  document.getElementById('menuItems').addEventListener('input', (e) => {
+    renderMenuPreview(e.target.value);
+    validateAll();
+  });
+
+  document.getElementById('applyBtn').addEventListener('click', applyChanges);
+  validateAll();
+}
+
+async function applyChanges() {
+  if (!validateAll()) return;
+
+  if (activeCalls > 0) {
+    const ok = confirm(`${activeCalls} call${activeCalls === 1 ? '' : 's'} currently in progress will be disconnected when the server restarts. Continue?`);
+    if (!ok) return;
+  }
+
+  const btn = document.getElementById('applyBtn');
+  const statusMsg = document.getElementById('statusMsg');
+  btn.disabled = true;
+  statusMsg.className = 'status-msg';
+  statusMsg.textContent = 'Saving…';
+
+  const payload = {
+    attractMode: document.getElementById('attractMode').checked,
+    allowPhoneNumberOverride: document.getElementById('allowPhoneNumberOverride').checked,
+    drinkType: document.getElementById('drinkType').value,
+    eventName: document.getElementById('eventName').value.trim(),
+    eventDisplayName: document.getElementById('eventDisplayName').value.trim(),
+    menuItems: document.getElementById('menuItems').value.trim(),
+  };
+
+  try {
+    const res = await fetch('/api/admin/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      statusMsg.className = 'status-msg error';
+      statusMsg.textContent = data.errors ? Object.values(data.errors).join(' ') : (data.error ?? 'Failed to save.');
+      btn.disabled = false;
+      return;
+    }
+    statusMsg.className = 'status-msg success';
+    statusMsg.textContent = 'Saved — restarting server to apply changes…';
+    pollForRestart();
+  } catch (err) {
+    statusMsg.className = 'status-msg error';
+    statusMsg.textContent = `Error: ${err.message}`;
+    btn.disabled = false;
+  }
+}
+
+function pollForRestart() {
+  const statusMsg = document.getElementById('statusMsg');
+  let seenDown = false;
+  const interval = setInterval(async () => {
+    try {
+      const res = await fetch('/health', { cache: 'no-store' });
+      if (res.ok && seenDown) {
+        clearInterval(interval);
+        statusMsg.textContent = 'Server is back — reloading…';
+        setTimeout(() => location.reload(), 600);
+      } else if (res.ok && !seenDown) {
+        // Still the old process (hasn't exited yet) — keep polling.
+      }
+    } catch {
+      seenDown = true;
+    }
+  }, 1000);
+}
+
+init();
+</script>
+</body>
+</html>

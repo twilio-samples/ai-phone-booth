@@ -16,20 +16,17 @@ prompt() {
   local label="$2"
   local default_value="${3:-}"
   local current_value="${!var_name:-}"
-  local answer
 
   if [[ -n "$current_value" ]]; then
     return
   fi
 
   if [[ -n "$default_value" ]]; then
-    read -r -p "$label [$default_value]: " answer
-    printf -v "$var_name" '%s' "${answer:-$default_value}"
+    printf -v "$var_name" '%s' "$default_value"
+    echo "$label: $default_value"
   else
-    while [[ -z "${!var_name:-}" ]]; do
-      read -r -p "$label: " answer
-      printf -v "$var_name" '%s' "$answer"
-    done
+    echo "Missing required value: $label (set $var_name in $ENV_FILE)" >&2
+    exit 1
   fi
 }
 
@@ -190,23 +187,23 @@ secret_keys=(
   TWILIO_API_KEY
   TWILIO_API_SECRET
   TWILIO_AUTH_TOKEN
+  OPENAI_API_KEY
+  ADMIN_PASS
+  MIXOLOGIST_AUTH
+)
+
+plain_keys=(
   TWILIO_PHONE_NUMBER
   TWILIO_SYNC_SERVICE_SID
   TWILIO_CONVERSATION_CONFIGURATION_ID
   TWILIO_TAC_CI_CONFIGURATION_ID
-  OPENAI_API_KEY
-  STATS_PASS
-  MIXOLOGIST_AUTH
   TWILIO_TAC_KNOWLEDGE_BASE_ID
-)
-
-plain_keys=(
   SIP_PHONE_ADDRESS
   DRINK_TYPE
   EVENT_NAME
   EVENT_DISPLAY_NAME
   MENU_ITEMS
-  STATS_USER
+  ADMIN_USER
   MIXOLOGIST_BASE_URL
 )
 

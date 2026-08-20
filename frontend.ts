@@ -9,7 +9,13 @@ import { join, dirname } from "path";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import twilio from "twilio";
 import { WELCOME_GREETING, drinkLabel, drinkIcon, venueLabel, roleLabel, menuNames } from "./agent.ts";
-import { updateCallTracker, getSyncItem, SYNC_MAP_NAME, SYNC_ITEM_TTL, type CallTrackerItem, type CintelSummary } from "./sync.ts";
+import { updateCallTracker, getSyncItem, SYNC_MAP_NAME, SYNC_ITEM_TTL, getBoothConfig, writeBoothConfig, type CallTrackerItem, type CintelSummary } from "./sync.ts";
+import { resolvedConfig } from "./config.ts";
+import { mergeBoothConfig } from "./boothConfig.ts";
+import { heroImageForDrinkType } from "./heroImage.ts";
+import { shouldRetryCall } from "./callRetry.ts";
+import { escapeHtml } from "./html.ts";
+import { validateAdminConfig } from "./adminConfigValidation.ts";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 function serveTemplated(file: string, vars: Record<string, string>): string {
@@ -60,8 +66,8 @@ function requireBasicAuth(req: FastifyRequest, reply: FastifyReply): boolean {
   if (header.startsWith("Basic ")) {
     const decoded = Buffer.from(header.slice(6), "base64").toString("utf8");
     const [user, pass] = decoded.split(":");
-    const expectedUser = process.env.STATS_USER!;
-    const expectedPass = process.env.STATS_PASS!;
+    const expectedUser = process.env.ADMIN_USER!;
+    const expectedPass = process.env.ADMIN_PASS!;
     if (user === expectedUser && pass === expectedPass) return true;
   }
   reply
@@ -89,20 +95,20 @@ export async function registerFrontendRoutes(app: FastifyInstance): Promise<void
   // ── Clean HTML routes ─────────────────────────────────────────────────────
   app.get("/", (_, reply) => reply.redirect("/start"));
 
-  const heroImage     = drinkLabel === "smoothie" ? "smoothie.png" : "barista.png";
+  const heroImage     = heroImageForDrinkType(drinkLabel);
   const drinkLabelCap = drinkLabel.charAt(0).toUpperCase() + drinkLabel.slice(1);
 
   app.get("/start", (_, reply) => {
     const html = serveTemplated("start.html", {
-      ATTRACT_MODE:    process.env.ATTRACT_MODE === "true" ? "true" : "false",
+      ATTRACT_MODE:    resolvedConfig.attractMode ? "true" : "false",
       ATTRACT_DEV:     process.env.ATTRACT_DEV  === "true" ? "true" : "false",
-      ALLOW_PHONE_NUMBER_OVERRIDE: process.env.ALLOW_PHONE_NUMBER_OVERRIDE === "true" ? "true" : "false",
+      ALLOW_PHONE_NUMBER_OVERRIDE: resolvedConfig.allowPhoneNumberOverride ? "true" : "false",
       VENUE_LABEL:     venueLabel,
       DRINK_LABEL:     drinkLabel,
       DRINK_LABEL_CAP: drinkLabelCap,
       DRINK_ICON:      drinkIcon,
       ROLE_LABEL:      roleLabel,
-      MENU_SUMMARY:    menuNames.slice(0, 5).join(", ") + (menuNames.length > 5 ? " and more" : ""),
+      MENU_SUMMARY:    escapeHtml(menuNames.slice(0, 5).join(", ") + (menuNames.length > 5 ? " and more" : "")),
       HERO_IMAGE:      heroImage,
     });
     reply.type("text/html").send(html);
@@ -160,7 +166,7 @@ export async function registerFrontendRoutes(app: FastifyInstance): Promise<void
     const client = getTwilio();
     const syncServiceSid = process.env.TWILIO_SYNC_SERVICE_SID!;
     const phoneOverride = body.phoneNumber?.trim();
-    const sipAddress = (process.env.ALLOW_PHONE_NUMBER_OVERRIDE === "true" && phoneOverride)
+    const sipAddress = (resolvedConfig.allowPhoneNumberOverride && phoneOverride)
       ? phoneOverride
       : process.env.SIP_PHONE_ADDRESS!;
     const from = process.env.TWILIO_PHONE_NUMBER!;
@@ -238,11 +244,10 @@ export async function registerFrontendRoutes(app: FastifyInstance): Promise<void
 
     if (!callSid || !callStatus) return { ok: true };
 
-    const retryable = callStatus === "busy" || callStatus === "no-answer";
     const entry = retryMap.get(callSid);
     const originalCallSid = entry?.originalCallSid ?? callSid;
 
-    if (retryable && entry && entry.retryCount < 2) {
+    if (entry && shouldRetryCall(callStatus, entry.retryCount)) {
       console.log(`[callStatus] ${callStatus} on ${callSid} (attempt ${entry.retryCount + 1}/3) — retrying in 2s`);
       await new Promise(r => setTimeout(r, 2000));
       try {
@@ -422,6 +427,61 @@ export async function registerFrontendRoutes(app: FastifyInstance): Promise<void
     return { total, orderRate, questionRate, bothRate, twilioRate, avgMessages, avgDuration, sentiment, drinkLabel };
   });
 
+  // ── GET /admin (basic-auth protected config page) ─────────────────────────
+  app.get("/admin", (req, reply) => {
+    if (!requireBasicAuth(req, reply)) return;
+    reply.sendFile("admin.html");
+  });
+
+  // ── GET /api/admin/config (current effective config + active call count) ──
+  app.get("/api/admin/config", async (req, reply) => {
+    if (!requireBasicAuth(req, reply)) return;
+
+    const client = getTwilio();
+    const syncServiceSid = process.env.TWILIO_SYNC_SERVICE_SID!;
+    const stored = await getBoothConfig();
+    const config = mergeBoothConfig(stored);
+
+    let activeCalls = 0;
+    try {
+      const rawItems = await client.sync.v1.services(syncServiceSid)
+        .syncMaps(SYNC_MAP_NAME).syncMapItems.list({ limit: 1000 });
+      activeCalls = rawItems.filter((i) => {
+        const status = (i.data as CallTrackerItem).status;
+        return status === "calling" || status === "in-progress";
+      }).length;
+    } catch (err) {
+      console.error("[admin] Failed to count active calls:", err);
+    }
+
+    return { config, activeCalls };
+  });
+
+  // ── POST /api/admin/config (validate, persist to Sync, restart to apply) ──
+  app.post("/api/admin/config", async (req, reply) => {
+    if (!requireBasicAuth(req, reply)) return;
+
+    const body = req.body as Record<string, unknown> ?? {};
+    const { errors, config } = validateAdminConfig(body);
+
+    if (!config) {
+      return reply.code(400).send({ success: false, errors });
+    }
+
+    try {
+      await writeBoothConfig(config);
+    } catch (err) {
+      console.error("[admin] Failed to write booth config:", err);
+      return reply.code(500).send({ success: false, error: String(err) });
+    }
+
+    reply.send({ success: true, restarting: true });
+    // Give the response time to flush before the process exits. docker-compose's
+    // restart:unless-stopped (or an equivalent supervisor in production) brings
+    // the process back up, which re-reads the Sync doc we just wrote.
+    setTimeout(() => process.exit(0), 500);
+  });
+
   // ── POST /api/beans/order (AI tool callback) ──────────────────────────────
   app.post("/api/beans/order", async (req) => {
     const headers = req.headers as Record<string, string>;
@@ -437,7 +497,7 @@ export async function registerFrontendRoutes(app: FastifyInstance): Promise<void
     const mixologistAuth = process.env.MIXOLOGIST_AUTH!;
 
     const externalPayload = {
-      event: process.env.EVENT_NAME ?? "signal-berlin",
+      event: resolvedConfig.eventName,
       order: {
         status: "queued",
         key: new Date().toISOString(),
