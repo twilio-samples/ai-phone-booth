@@ -1,6 +1,19 @@
 import { expect, test } from "@playwright/test";
 
 test.describe("/start page", () => {
+  // start.html unconditionally loads the real Twilio Sync SDK from a CDN,
+  // and page.goto waits for the load event — stub it so these tests don't
+  // depend on that external network call's latency.
+  test.beforeEach(async ({ page }) => {
+    await page.route("https://media.twiliocdn.com/**", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/javascript",
+        body: "window.Twilio = { Sync: { Client: function() { return { map: async () => ({ get: async () => null, on: () => {} }) }; } } };",
+      });
+    });
+  });
+
   test("renders the persona and menu for the configured drink type (drinks/cocktails)", async ({ page }) => {
     await page.goto("/start");
 

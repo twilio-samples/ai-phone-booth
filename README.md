@@ -48,7 +48,7 @@ Open the [Twilio Console](https://console.twilio.com) and go to **Products & Ser
 You need two numbers, both with the **Voice** channel enabled:
 
 - **Outbound number** (`TWILIO_PHONE_NUMBER`) — the Twilio number the system calls *from*
-- **Destination** (`SIP_PHONE_ADDRESS`) — where the call is delivered:
+- **Destination(s)** (`SIP_PHONE_ADDRESS`) — where the call is delivered. Accepts a comma-separated list if you have multiple phones/devices; pick which one is active from `/admin` without redeploying — see [CONFIGURATION.md](CONFIGURATION.md#call-destinations):
   - **Testing**: any E.164 number you own (e.g. `+14155551234`)
   - **Production / event booth**: a SIP URI pointing to the physical phone (e.g. `sip:booth@your-pbx.example.com`)
 

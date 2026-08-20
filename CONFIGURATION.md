@@ -13,7 +13,7 @@ Every setting has an `.env` default (see `.env.example`). A subset of them — t
 | `TWILIO_SYNC_SERVICE_SID` | Yes | Sync service holding the call tracker map and the `/admin` config document |
 | `TWILIO_CONVERSATION_CONFIGURATION_ID` | Yes | Conversation Orchestrator configuration SID |
 | `TWILIO_TAC_CI_CONFIGURATION_ID` | Yes | Conversation Intelligence configuration SID |
-| `SIP_PHONE_ADDRESS` | Yes | Default call destination — an E.164 number or SIP URI |
+| `SIP_PHONE_ADDRESS` | Yes | Comma-separated call destination candidates (E.164 numbers and/or SIP URIs) — see [Call destinations](#call-destinations) |
 | `OPENAI_API_KEY` | Yes | OpenAI API key for the Responses API |
 | `NGROK_BASE_URL` | Yes (local dev) | Public HTTPS URL Twilio delivers webhooks to |
 | `ADMIN_USER` / `ADMIN_PASS` | Yes | Basic auth for both `/admin` and `/stats` |
@@ -28,7 +28,7 @@ Every setting has an `.env` default (see `.env.example`). A subset of them — t
 
 ## Runtime config via /admin
 
-Visit `/admin` (protected by `ADMIN_USER`/`ADMIN_PASS`) to change the following without editing `.env` or redeploying: attract mode, phone number override, drink type, event name, event display name, and menu items. The page shows the current effective config and the number of active calls, validates input, writes it to the Sync document, and restarts the process to apply it.
+Visit `/admin` (protected by `ADMIN_USER`/`ADMIN_PASS`) to change the following without editing `.env` or redeploying: attract mode, phone number override, which SIP address is active, drink type, event name, event display name, and menu items. The page shows the current effective config and the number of active calls, validates input, writes it to the Sync document, and restarts the process to apply it.
 
 ## Booth persona and menu
 
@@ -55,9 +55,19 @@ Attract mode is designed for unattended event booths. When no one is interacting
 | `ATTRACT_MODE=true` | Popup fires after a random 5–10 minute idle interval, then repeats |
 | `ATTRACT_DEV=true` | Popup fires once after 20 seconds — useful for testing the flow without waiting |
 
+## Call destinations
+
+`SIP_PHONE_ADDRESS` is a comma-separated list of candidate destinations (E.164 numbers and/or SIP URIs) — one entry per physical phone/device the booth might call, e.g.:
+
+```
+sip:booth1@your-pbx.example.com,sip:booth2@your-pbx.example.com,+14155551234
+```
+
+The list itself is fixed at deploy time (env var only, not admin-editable). Which *one* of those candidates is currently active is a separate, admin-editable setting: `/admin` renders them as a `<select>`, and the choice is persisted to the Sync document, same as the other runtime settings. If nothing has been selected yet, the first candidate in the list is used. If a previously-selected address is redeployed away (no longer in the current `SIP_PHONE_ADDRESS` list), it's treated the same as unselected and falls back to the first candidate — a stale selection can never silently point at a destination that no longer exists.
+
 ## Phone number override
 
-By default, every call goes to the fixed `SIP_PHONE_ADDRESS`. Setting `ALLOW_PHONE_NUMBER_OVERRIDE=true` lets visitors type their own destination number or SIP address on the start page instead — useful for testing or for setups without a single fixed booth phone.
+By default, every call goes to the selected `SIP_PHONE_ADDRESS` candidate. Setting `ALLOW_PHONE_NUMBER_OVERRIDE=true` lets visitors type their own destination number or SIP address on the start page instead — useful for testing or for setups without a single fixed booth phone. This is independent of (and takes priority over) the `/admin` selection above.
 
 ## Order fulfillment
 

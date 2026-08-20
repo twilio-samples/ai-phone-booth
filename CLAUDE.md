@@ -23,7 +23,7 @@ ngrok http 8000        # copy the https URL into NGROK_BASE_URL in .env
 pnpm dev               # tsx server.ts
 ```
 
-The UI is at `http://localhost:8000`. `SIP_PHONE_ADDRESS` accepts any E.164 phone number or SIP URI.
+The UI is at `http://localhost:8000`. `SIP_PHONE_ADDRESS` is a comma-separated list of E.164 numbers and/or SIP URIs; `/admin` picks which one is active (see `boothConfig.ts` and `sipAddresses.ts`).
 
 ## Key design decisions
 
@@ -55,6 +55,7 @@ All required variables are in `.env.example`. Key ones:
 - `MIXOLOGIST_BASE_URL` / `MIXOLOGIST_AUTH` — required; order submission has no fallback without these
 - `ADMIN_USER` / `ADMIN_PASS` — basic auth for both `/admin` and `/stats`
 - `DRINK_TYPE` / `EVENT_NAME` / `EVENT_DISPLAY_NAME` / `MENU_ITEMS` — booth persona/menu config, all overridable at runtime via `/admin` (persisted to Sync, applied by restarting the process — see `config.ts`)
+- `SIP_PHONE_ADDRESS` — comma-separated call destination candidates, fixed at deploy time; which one is *active* is admin-overridable the same way (see `boothConfig.ts`'s stale-selection fallback logic)
 
 ## Common tasks
 

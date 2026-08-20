@@ -26,6 +26,7 @@ export interface BoothConfig {
   eventName?: string;
   eventDisplayName?: string;
   menuItems?: string;
+  sipPhoneAddress?: string;
 }
 
 export const CONFIG_DOC_NAME = "boothConfig";

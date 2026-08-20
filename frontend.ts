@@ -16,6 +16,7 @@ import { heroImageForDrinkType } from "./heroImage.ts";
 import { shouldRetryCall } from "./callRetry.ts";
 import { escapeHtml } from "./html.ts";
 import { validateAdminConfig } from "./adminConfigValidation.ts";
+import { parseSipAddresses } from "./sipAddresses.ts";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 function serveTemplated(file: string, vars: Record<string, string>): string {
@@ -168,7 +169,7 @@ export async function registerFrontendRoutes(app: FastifyInstance): Promise<void
     const phoneOverride = body.phoneNumber?.trim();
     const sipAddress = (resolvedConfig.allowPhoneNumberOverride && phoneOverride)
       ? phoneOverride
-      : process.env.SIP_PHONE_ADDRESS!;
+      : resolvedConfig.sipPhoneAddress;
     const from = process.env.TWILIO_PHONE_NUMBER!;
     const ngrokBase = getPublicBaseUrl(req);
 
@@ -315,7 +316,7 @@ export async function registerFrontendRoutes(app: FastifyInstance): Promise<void
   // ── POST /api/attractCall (attract-mode: initiate call without user details) ─
   app.post("/api/attractCall", async (req, reply) => {
     const client = getTwilio();
-    const sipAddress = process.env.SIP_PHONE_ADDRESS!;
+    const sipAddress = resolvedConfig.sipPhoneAddress;
     const from = process.env.TWILIO_PHONE_NUMBER!;
     const ngrokBase = getPublicBaseUrl(req);
     const syncServiceSid = process.env.TWILIO_SYNC_SERVICE_SID!;
@@ -441,6 +442,7 @@ export async function registerFrontendRoutes(app: FastifyInstance): Promise<void
     const syncServiceSid = process.env.TWILIO_SYNC_SERVICE_SID!;
     const stored = await getBoothConfig();
     const config = mergeBoothConfig(stored);
+    const sipPhoneAddresses = parseSipAddresses(process.env.SIP_PHONE_ADDRESS ?? "");
 
     let activeCalls = 0;
     try {
@@ -454,7 +456,7 @@ export async function registerFrontendRoutes(app: FastifyInstance): Promise<void
       console.error("[admin] Failed to count active calls:", err);
     }
 
-    return { config, activeCalls };
+    return { config, activeCalls, sipPhoneAddresses };
   });
 
   // ── POST /api/admin/config (validate, persist to Sync, restart to apply) ──
@@ -462,7 +464,8 @@ export async function registerFrontendRoutes(app: FastifyInstance): Promise<void
     if (!requireBasicAuth(req, reply)) return;
 
     const body = req.body as Record<string, unknown> ?? {};
-    const { errors, config } = validateAdminConfig(body);
+    const sipPhoneAddresses = parseSipAddresses(process.env.SIP_PHONE_ADDRESS ?? "");
+    const { errors, config } = validateAdminConfig(body, { sipPhoneAddresses });
 
     if (!config) {
       return reply.code(400).send({ success: false, errors });
