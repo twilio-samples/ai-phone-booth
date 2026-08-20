@@ -233,6 +233,16 @@
   </div>
 
   <div class="panel-card">
+    <div class="section-label">Call Destination</div>
+
+    <div class="field">
+      <div class="field-label">SIP Address / Device</div>
+      <select class="select-input" id="sipPhoneAddress"></select>
+      <div class="field-hint">Which configured destination calls are routed to. Set via SIP_PHONE_ADDRESS at deploy time; visitors can still type a one-off number if phone number override is enabled above.</div>
+    </div>
+  </div>
+
+  <div class="panel-card">
     <div class="section-label">Event</div>
 
     <div class="field">
@@ -378,7 +388,7 @@ async function init() {
     loadingState.textContent = 'Failed to load config.';
     return;
   }
-  const { config, activeCalls: n } = await res.json();
+  const { config, activeCalls: n, sipPhoneAddresses } = await res.json();
   activeCalls = n;
 
   if (activeCalls > 0) {
@@ -392,6 +402,11 @@ async function init() {
 
   document.getElementById('attractMode').checked = !!config.attractMode;
   document.getElementById('allowPhoneNumberOverride').checked = !!config.allowPhoneNumberOverride;
+  const sipSelect = document.getElementById('sipPhoneAddress');
+  sipSelect.innerHTML = sipPhoneAddresses.map((addr) =>
+    `<option value="${escapeHtml(addr)}">${escapeHtml(addr)}</option>`
+  ).join('');
+  sipSelect.value = config.sipPhoneAddress;
   document.getElementById('drinkType').value = config.drinkType;
   document.getElementById('eventName').value = config.eventName;
   document.getElementById('eventDisplayName').value = config.eventDisplayName;
@@ -429,6 +444,7 @@ async function applyChanges() {
   const payload = {
     attractMode: document.getElementById('attractMode').checked,
     allowPhoneNumberOverride: document.getElementById('allowPhoneNumberOverride').checked,
+    sipPhoneAddress: document.getElementById('sipPhoneAddress').value,
     drinkType: document.getElementById('drinkType').value,
     eventName: document.getElementById('eventName').value.trim(),
     eventDisplayName: document.getElementById('eventDisplayName').value.trim(),

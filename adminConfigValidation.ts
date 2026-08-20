@@ -11,7 +11,17 @@ export interface AdminConfigValidationResult {
   config: BoothConfig | null;
 }
 
-export function validateAdminConfig(body: Record<string, unknown>): AdminConfigValidationResult {
+export interface ValidateAdminConfigOptions {
+  // Current SIP_PHONE_ADDRESS candidates — the set of values sipPhoneAddress
+  // is allowed to be. Passed in rather than read from process.env here so
+  // this module stays dependency-free and easily unit testable.
+  sipPhoneAddresses: string[];
+}
+
+export function validateAdminConfig(
+  body: Record<string, unknown>,
+  options: ValidateAdminConfigOptions,
+): AdminConfigValidationResult {
   const errors: Record<string, string> = {};
 
   if (typeof body.attractMode !== "boolean") errors.attractMode = "Must be true or false.";
@@ -35,6 +45,13 @@ export function validateAdminConfig(body: Record<string, unknown>): AdminConfigV
   const menuError = validateMenuItems(menuItems);
   if (menuError) errors.menuItems = menuError;
 
+  const sipPhoneAddress = String(body.sipPhoneAddress ?? "").trim();
+  if (!options.sipPhoneAddresses.includes(sipPhoneAddress)) {
+    errors.sipPhoneAddress = options.sipPhoneAddresses.length
+      ? `Must be one of the configured SIP addresses: ${options.sipPhoneAddresses.join(", ")}.`
+      : "No SIP addresses are configured (set SIP_PHONE_ADDRESS).";
+  }
+
   if (Object.keys(errors).length > 0) {
     return { errors, config: null };
   }
@@ -48,6 +65,7 @@ export function validateAdminConfig(body: Record<string, unknown>): AdminConfigV
       eventName,
       eventDisplayName,
       menuItems,
+      sipPhoneAddress,
     },
   };
 }

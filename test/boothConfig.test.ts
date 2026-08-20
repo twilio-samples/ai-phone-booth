@@ -8,6 +8,7 @@ const ENV_KEYS = [
   "EVENT_NAME",
   "EVENT_DISPLAY_NAME",
   "MENU_ITEMS",
+  "SIP_PHONE_ADDRESS",
 ] as const;
 
 let savedEnv: Record<string, string | undefined>;
@@ -36,6 +37,7 @@ describe("mergeBoothConfig", () => {
       eventName: "booth",
       eventDisplayName: "",
       menuItems: "",
+      sipPhoneAddress: "",
     });
   });
 
@@ -46,6 +48,7 @@ describe("mergeBoothConfig", () => {
     process.env.EVENT_NAME = "WeAreDevs";
     process.env.EVENT_DISPLAY_NAME = "  WeAreDevelopers World Congress  ";
     process.env.MENU_ITEMS = "Mango Blast";
+    process.env.SIP_PHONE_ADDRESS = "sip:booth@example.com";
 
     expect(mergeBoothConfig({})).toEqual({
       attractMode: true,
@@ -54,6 +57,7 @@ describe("mergeBoothConfig", () => {
       eventName: "WeAreDevs",
       eventDisplayName: "WeAreDevelopers World Congress",
       menuItems: "Mango Blast",
+      sipPhoneAddress: "sip:booth@example.com",
     });
   });
 
@@ -89,5 +93,37 @@ describe("mergeBoothConfig", () => {
 
   it("trims eventDisplayName even when it comes from the stored value", () => {
     expect(mergeBoothConfig({ eventDisplayName: "  Signal Berlin  " }).eventDisplayName).toBe("Signal Berlin");
+  });
+
+  describe("sipPhoneAddress resolution", () => {
+    it("picks the first candidate when nothing is stored", () => {
+      process.env.SIP_PHONE_ADDRESS = "sip:booth1@example.com,sip:booth2@example.com";
+      expect(mergeBoothConfig({}).sipPhoneAddress).toBe("sip:booth1@example.com");
+    });
+
+    it("keeps the stored selection when it's still one of the candidates", () => {
+      process.env.SIP_PHONE_ADDRESS = "sip:booth1@example.com,sip:booth2@example.com";
+      expect(mergeBoothConfig({ sipPhoneAddress: "sip:booth2@example.com" }).sipPhoneAddress).toBe("sip:booth2@example.com");
+    });
+
+    it("falls back to the first candidate when the stored selection is stale (no longer in the list)", () => {
+      process.env.SIP_PHONE_ADDRESS = "sip:booth1@example.com,sip:booth2@example.com";
+      expect(mergeBoothConfig({ sipPhoneAddress: "sip:retired@example.com" }).sipPhoneAddress).toBe("sip:booth1@example.com");
+    });
+
+    it("is backwards compatible with a single, non-list SIP_PHONE_ADDRESS", () => {
+      process.env.SIP_PHONE_ADDRESS = "+14155551234";
+      expect(mergeBoothConfig({}).sipPhoneAddress).toBe("+14155551234");
+    });
+
+    it("resolves to an empty string when SIP_PHONE_ADDRESS is unset", () => {
+      expect(mergeBoothConfig({ sipPhoneAddress: "sip:booth1@example.com" }).sipPhoneAddress).toBe("");
+    });
+
+    it("trims whitespace around each candidate", () => {
+      process.env.SIP_PHONE_ADDRESS = " sip:booth1@example.com , sip:booth2@example.com ";
+      expect(mergeBoothConfig({}).sipPhoneAddress).toBe("sip:booth1@example.com");
+      expect(mergeBoothConfig({ sipPhoneAddress: "sip:booth2@example.com" }).sipPhoneAddress).toBe("sip:booth2@example.com");
+    });
   });
 });

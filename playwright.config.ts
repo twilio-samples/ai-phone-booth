@@ -23,7 +23,7 @@ const TEST_ENV: Record<string, string> = {
   OPENAI_API_KEY: "sk-test",
   ADMIN_USER: "e2e-user",
   ADMIN_PASS: "e2e-pass",
-  SIP_PHONE_ADDRESS: "+15550005678",
+  SIP_PHONE_ADDRESS: "+15550005678,sip:booth2@example.com",
   NGROK_BASE_URL: "http://localhost:8931",
   MIXOLOGIST_BASE_URL: "http://localhost:9",
   MIXOLOGIST_AUTH: "user:pass",

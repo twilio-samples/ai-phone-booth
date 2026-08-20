@@ -2,6 +2,8 @@ import { expect, test } from "@playwright/test";
 
 const AUTH_HEADER = "Basic " + Buffer.from("e2e-user:e2e-pass").toString("base64");
 
+const MOCK_SIP_ADDRESSES = ["+15550005678", "sip:booth2@example.com"];
+
 const MOCK_CONFIG = {
   attractMode: false,
   allowPhoneNumberOverride: true,
@@ -9,6 +11,7 @@ const MOCK_CONFIG = {
   eventName: "e2e-test",
   eventDisplayName: "",
   menuItems: "Irish Lovers(Espresso, Whiskey),Shakerato Lovers,Blue Gin Lovers",
+  sipPhoneAddress: MOCK_SIP_ADDRESSES[0],
 };
 
 test.describe("POST /api/admin/config validation (API-level, real server logic)", () => {
@@ -55,7 +58,7 @@ test.describe("/admin page", () => {
         await route.fulfill({
           status: 200,
           contentType: "application/json",
-          body: JSON.stringify({ config: MOCK_CONFIG, activeCalls }),
+          body: JSON.stringify({ config: MOCK_CONFIG, activeCalls, sipPhoneAddresses: MOCK_SIP_ADDRESSES }),
         });
       } else {
         await route.fulfill({
@@ -76,6 +79,45 @@ test.describe("/admin page", () => {
     await expect(page.locator("#menuItems")).toHaveValue(MOCK_CONFIG.menuItems);
     await expect(page.locator("#allowPhoneNumberOverride")).toBeChecked();
     await expect(page.locator("#attractMode")).not.toBeChecked();
+    await expect(page.locator("#sipPhoneAddress")).toHaveValue(MOCK_SIP_ADDRESSES[0]);
+  });
+
+  test("populates the SIP address select with every configured candidate", async ({ page }) => {
+    await mockAdminConfigApi(page);
+    await page.goto("/admin");
+
+    const options = page.locator("#sipPhoneAddress option");
+    await expect(options).toHaveCount(MOCK_SIP_ADDRESSES.length);
+    for (const [i, addr] of MOCK_SIP_ADDRESSES.entries()) {
+      await expect(options.nth(i)).toHaveAttribute("value", addr);
+    }
+  });
+
+  test("saves the selected SIP address", async ({ page }) => {
+    await mockAdminConfigApi(page);
+    let savedPayload: Record<string, unknown> | null = null;
+    await page.route("**/api/admin/config", async (route) => {
+      if (route.request().method() === "POST") {
+        savedPayload = route.request().postDataJSON();
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({ success: true, restarting: true }),
+        });
+      } else {
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({ config: MOCK_CONFIG, activeCalls: 0, sipPhoneAddresses: MOCK_SIP_ADDRESSES }),
+        });
+      }
+    });
+
+    await page.goto("/admin");
+    await page.locator("#sipPhoneAddress").selectOption(MOCK_SIP_ADDRESSES[1]);
+    await page.locator("#applyBtn").click();
+    await expect(page.locator("#statusMsg")).toHaveClass(/success/);
+    expect(savedPayload?.sipPhoneAddress).toBe(MOCK_SIP_ADDRESSES[1]);
   });
 
   test("shows an inline error and disables Apply for an invalid event name", async ({ page }) => {
