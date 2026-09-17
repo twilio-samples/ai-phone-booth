@@ -21,29 +21,76 @@ const callSidByConversationId = new Map<string, string>();
 let pendingCallSid: string | undefined;
 const pendingCallInfo = new Map<string, { agentPhone: string }>();
 
+let cachedMemoryStoreId: string | undefined;
+
+async function getMemoryStoreId(auth: string): Promise<string | undefined> {
+  if (cachedMemoryStoreId) return cachedMemoryStoreId;
+  const configId = process.env.TWILIO_CONVERSATION_CONFIGURATION_ID!;
+  const res = await fetch(
+    `https://conversations.twilio.com/v2/ControlPlane/Configurations/${configId}`,
+    { headers: { Authorization: `Basic ${auth}` } },
+  );
+  if (!res.ok) return undefined;
+  const { memoryStoreId } = (await res.json()) as { memoryStoreId?: string };
+  cachedMemoryStoreId = memoryStoreId;
+  return memoryStoreId;
+}
+
 async function fixParticipantRoles(conversationId: string, agentPhone: string): Promise<void> {
   const apiKey = process.env.TWILIO_API_KEY!;
   const apiSecret = process.env.TWILIO_API_SECRET!;
   const auth = Buffer.from(`${apiKey}:${apiSecret}`).toString("base64");
-  const base = "https://conversations.twilio.com";
+  const headers = { Authorization: `Basic ${auth}`, "Content-Type": "application/json" };
+  const convBase = "https://conversations.twilio.com";
+  const memBase = "https://memory.twilio.com";
 
-  const listRes = await fetch(`${base}/v2/Conversations/${conversationId}/Participants`, {
+  const storeId = await getMemoryStoreId(auth);
+
+  const listRes = await fetch(`${convBase}/v2/Conversations/${conversationId}/Participants`, {
     headers: { Authorization: `Basic ${auth}` },
   });
   if (!listRes.ok) return;
 
-  type Participant = { id: string; type?: string; addresses?: Array<{ channel: string; address: string }> };
-  const { participants } = await listRes.json() as { participants: Participant[] };
+  type Participant = {
+    id: string;
+    type?: string;
+    profileId?: string | null;
+    addresses?: Array<{ channel: string; address: string; channelId?: string }>;
+  };
+  const { participants } = (await listRes.json()) as { participants: Participant[] };
 
   for (const p of participants) {
     const voiceAddr = p.addresses?.find((a) => a.channel === "VOICE")?.address;
     if (!voiceAddr) continue;
-    const targetType = voiceAddr === agentPhone ? "AI_AGENT" : "CUSTOMER";
-    if (p.type === targetType) continue;
-    await fetch(`${base}/v2/Conversations/${conversationId}/Participants/${p.id}`, {
+    const isAgent = voiceAddr === agentPhone;
+    const targetType = isAgent ? "AI_AGENT" : "CUSTOMER";
+
+    const body: { type: string; addresses: unknown; profileId?: string } = {
+      type: targetType,
+      addresses: p.addresses,
+    };
+
+    // For the customer, create (or resolve) a memory profile and link it. The
+    // Memory API is idempotent by identifier — a repeat call for the same
+    // phone returns the existing profile ID.
+    if (!isAgent && storeId && !p.profileId) {
+      const profRes = await fetch(`${memBase}/v1/Stores/${storeId}/Profiles`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ traits: { Contact: { phone: voiceAddr } } }),
+      });
+      if (profRes.ok) {
+        const { id } = (await profRes.json()) as { id?: string };
+        if (id) body.profileId = id;
+      }
+    }
+
+    if (p.type === targetType && !body.profileId) continue;
+
+    await fetch(`${convBase}/v2/Conversations/${conversationId}/Participants/${p.id}`, {
       method: "PUT",
-      headers: { Authorization: `Basic ${auth}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ type: targetType, addresses: p.addresses }),
+      headers,
+      body: JSON.stringify(body),
     });
   }
 }
