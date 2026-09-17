@@ -9,6 +9,7 @@
 		"start": "tsx server.ts",
 		"dev": "tsx server.ts",
 		"reset-stats": "tsx scripts/reset-stats.ts",
+		"reset-memory": "tsx scripts/reset-memory.ts",
 		"test": "vitest run",
 		"test:watch": "vitest",
 		"test:e2e": "playwright test"
