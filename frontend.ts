@@ -9,7 +9,7 @@ import { join, dirname } from "path";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import twilio from "twilio";
 import { WELCOME_GREETING, drinkLabel, drinkIcon, venueLabel, roleLabel, menuNames } from "./agent.ts";
-import { updateCallTracker, getSyncItem, SYNC_MAP_NAME, SYNC_ITEM_TTL, getBoothConfig, writeBoothConfig, type CallTrackerItem, type CintelSummary } from "./sync.ts";
+import { updateCallTracker, getSyncItem, SYNC_MAP_NAME, SYNC_ITEM_TTL, getBoothConfig, writeBoothConfig, readRetryEntry, writeRetryEntry, deleteRetryEntry, type CallTrackerItem, type CintelSummary } from "./sync.ts";
 import { resolvedConfig } from "./config.ts";
 import { mergeBoothConfig } from "./boothConfig.ts";
 import { heroImageForDrinkType } from "./heroImage.ts";
@@ -80,16 +80,60 @@ function requireBasicAuth(req: FastifyRequest, reply: FastifyReply): boolean {
 
 // ─── plugin ───────────────────────────────────────────────────────────────────
 
-interface RetryEntry {
-  originalCallSid: string;
-  retryCount: number;
-  to: string;
-  from: string;
-  twimlUrl: string;
-  statusCallbackUrl: string;
+// Retry state lives in a Sync map (see RETRY_MAP_NAME) so retry chains survive
+// process restarts — a mid-chain restart used to leave the CallTracker stuck
+// at status="calling" forever because the callback lost its retry context.
+
+const TWILIO_TERMINAL_STATUSES = new Set(["completed", "failed", "busy", "no-answer", "canceled"]);
+
+// Belt-and-suspenders safety net for the admin dashboard's active-call count.
+// A callStatus webhook can be lost (server down, ngrok stale, network blip)
+// and leave a Sync item pinned at status="calling" or "in-progress" forever.
+// At startup we ask Twilio's Voice API what really happened to each such call
+// and reconcile the tracker accordingly.
+export async function reconcileActiveCalls(): Promise<void> {
+  const client = getTwilio();
+  const syncServiceSid = process.env.TWILIO_SYNC_SERVICE_SID!;
+  let items;
+  try {
+    items = await client.sync.v1.services(syncServiceSid)
+      .syncMaps(SYNC_MAP_NAME).syncMapItems.list({ limit: 1000 });
+  } catch (err: any) {
+    if (err?.status !== 404) console.error("[reconcile] list error:", err);
+    return;
+  }
+  const active = items.filter((i) => {
+    const s = (i.data as CallTrackerItem).status;
+    return s === "calling" || s === "in-progress";
+  });
+  if (active.length === 0) return;
+
+  console.log(`[reconcile] Checking ${active.length} active call(s) against Twilio…`);
+  for (const item of active) {
+    const callSid = item.key;
+    try {
+      const call = await client.calls(callSid).fetch();
+      if (!TWILIO_TERMINAL_STATUSES.has(call.status)) continue;
+      const patch: Partial<CallTrackerItem> = {
+        status: call.status === "completed" ? "completed" : "failed",
+      };
+      if (call.status === "completed" && call.duration) {
+        const secs = parseInt(call.duration, 10);
+        if (!isNaN(secs)) patch.duration = secs;
+      }
+      await updateCallTracker(callSid, patch);
+      console.log(`[reconcile] ${callSid} → ${patch.status} (was ${call.status})`);
+    } catch (err: any) {
+      // If Twilio has no record of this call SID, treat the tracker as stale.
+      if (err?.status === 404) {
+        await updateCallTracker(callSid, { status: "failed" });
+        console.log(`[reconcile] ${callSid} → failed (no Twilio record)`);
+      } else {
+        console.error(`[reconcile] ${callSid} error:`, err);
+      }
+    }
+  }
 }
-// Key: any callSid in a retry chain → entry with the original callSid and retry state.
-const retryMap = new Map<string, RetryEntry>();
 
 export async function registerFrontendRoutes(app: FastifyInstance): Promise<void> {
 
@@ -185,7 +229,7 @@ export async function registerFrontendRoutes(app: FastifyInstance): Promise<void
         statusCallbackEvent: ["initiated", "ringing", "answered", "completed"],
       });
       callSid = call.sid;
-      retryMap.set(callSid, {
+      await writeRetryEntry(callSid, {
         originalCallSid: callSid,
         retryCount: 0,
         to: sipAddress,
@@ -245,7 +289,7 @@ export async function registerFrontendRoutes(app: FastifyInstance): Promise<void
 
     if (!callSid || !callStatus) return { ok: true };
 
-    const entry = retryMap.get(callSid);
+    const entry = await readRetryEntry(callSid);
     const originalCallSid = entry?.originalCallSid ?? callSid;
 
     if (entry && shouldRetryCall(callStatus, entry.retryCount)) {
@@ -261,7 +305,7 @@ export async function registerFrontendRoutes(app: FastifyInstance): Promise<void
           statusCallbackMethod: "POST",
           statusCallbackEvent: ["initiated", "ringing", "answered", "completed"],
         });
-        retryMap.set(newCall.sid, {
+        await writeRetryEntry(newCall.sid, {
           originalCallSid,
           retryCount: entry.retryCount + 1,
           to: entry.to,
@@ -269,7 +313,7 @@ export async function registerFrontendRoutes(app: FastifyInstance): Promise<void
           twimlUrl: entry.twimlUrl,
           statusCallbackUrl: entry.statusCallbackUrl,
         });
-        retryMap.delete(callSid);
+        await deleteRetryEntry(callSid);
         console.log(`[callStatus] Retry call placed: ${newCall.sid}`);
       } catch (err) {
         console.error("[callStatus] Retry call failed:", err);
@@ -298,7 +342,7 @@ export async function registerFrontendRoutes(app: FastifyInstance): Promise<void
         if (!isNaN(secs)) patch.duration = secs;
       }
       await updateCallTracker(originalCallSid, patch);
-      if (callStatus === "completed" || callStatus === "failed") retryMap.delete(callSid);
+      if (callStatus === "completed" || callStatus === "failed") await deleteRetryEntry(callSid);
     }
 
     return { ok: true };
@@ -332,7 +376,7 @@ export async function registerFrontendRoutes(app: FastifyInstance): Promise<void
         statusCallbackEvent: ["initiated", "ringing", "answered", "completed"],
       });
       callSid = call.sid;
-      retryMap.set(callSid, {
+      await writeRetryEntry(callSid, {
         originalCallSid: callSid,
         retryCount: 0,
         to: sipAddress,
@@ -457,6 +501,37 @@ export async function registerFrontendRoutes(app: FastifyInstance): Promise<void
     }
 
     return { config, activeCalls, sipPhoneAddresses };
+  });
+
+  // ── POST /api/admin/terminateActiveCalls (hang up + mark failed) ──────────
+  app.post("/api/admin/terminateActiveCalls", async (req, reply) => {
+    if (!requireBasicAuth(req, reply)) return;
+
+    const client = getTwilio();
+    const syncServiceSid = process.env.TWILIO_SYNC_SERVICE_SID!;
+
+    const rawItems = await client.sync.v1.services(syncServiceSid)
+      .syncMaps(SYNC_MAP_NAME).syncMapItems.list({ limit: 1000 });
+    const active = rawItems.filter((i) => {
+      const s = (i.data as CallTrackerItem).status;
+      return s === "calling" || s === "in-progress";
+    });
+
+    let terminated = 0;
+    for (const item of active) {
+      const callSid = item.key;
+      try {
+        await client.calls(callSid).update({ status: "completed" });
+        terminated++;
+      } catch (err: any) {
+        // The Twilio call may already be over (or never got past provisioning).
+        // Log but continue — we still want to reconcile the tracker below.
+        if (err?.status !== 404) console.error(`[terminate] hangup ${callSid} error:`, err);
+      }
+      await updateCallTracker(callSid, { status: "failed" });
+    }
+
+    return { success: true, terminated: active.length };
   });
 
   // ── POST /api/admin/config (validate, persist to Sync, restart to apply) ──
