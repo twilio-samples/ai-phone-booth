@@ -4,11 +4,11 @@
  * startup; the /admin page writes to Sync and restarts the process to apply
  * changes, so nothing here needs to be re-read mid-process.
  */
-import { config } from "dotenv";
+import { loadEnv } from "./loadEnv.ts";
 import { getBoothConfig } from "./sync.ts";
 import { mergeBoothConfig } from "./boothConfig.ts";
 
-config();
+loadEnv();
 
 // Tests boot the server without real Twilio credentials — skip the live Sync
 // fetch so startup doesn't depend on network access.
