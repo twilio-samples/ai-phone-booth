@@ -14,6 +14,10 @@ export interface CallTrackerItem {
   cintel?: CintelSummary;
   observations?: string[];
   summaries?: string[];
+  // Populated on terminal callbacks so we can distinguish gateway timeouts
+  // (no code) from 486/503 rejections when tuning retry behavior.
+  terminalCallStatus?: string;
+  sipResponseCode?: string;
 }
 
 export const SYNC_MAP_NAME = "callTracker";

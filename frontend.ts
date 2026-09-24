@@ -13,7 +13,7 @@ import { updateCallTracker, getSyncItem, SYNC_MAP_NAME, SYNC_ITEM_TTL, getBoothC
 import { resolvedConfig } from "./config.ts";
 import { mergeBoothConfig } from "./boothConfig.ts";
 import { heroImageForDrinkType } from "./heroImage.ts";
-import { shouldRetryCall } from "./callRetry.ts";
+import { nextRetryDelayMs, shouldRetryCall } from "./callRetry.ts";
 import { escapeHtml } from "./html.ts";
 import { validateAdminConfig } from "./adminConfigValidation.ts";
 import { parseSipAddresses } from "./sipAddresses.ts";
@@ -85,6 +85,11 @@ function requireBasicAuth(req: FastifyRequest, reply: FastifyReply): boolean {
 // at status="calling" forever because the callback lost its retry context.
 
 const TWILIO_TERMINAL_STATUSES = new Set(["completed", "failed", "busy", "no-answer", "canceled"]);
+
+// Ring window for outbound SIP dials. Twilio's Calls-API default is 60 s.
+// Booth callees rarely take that long, and shortening it lets us fail-fast
+// on unresponsive endpoints so the retry chain can move on.
+const CALL_TIMEOUT_SECONDS = 30;
 
 // Belt-and-suspenders safety net for the admin dashboard's active-call count.
 // A callStatus webhook can be lost (server down, ngrok stale, network blip)
@@ -224,6 +229,7 @@ export async function registerFrontendRoutes(app: FastifyInstance): Promise<void
         to: sipAddress,
         from,
         url: `${ngrokBase}/twiml`,
+        timeout: CALL_TIMEOUT_SECONDS,
         statusCallback: `${ngrokBase}/api/callStatus`,
         statusCallbackMethod: "POST",
         statusCallbackEvent: ["initiated", "ringing", "answered", "completed"],
@@ -293,14 +299,17 @@ export async function registerFrontendRoutes(app: FastifyInstance): Promise<void
     const originalCallSid = entry?.originalCallSid ?? callSid;
 
     if (entry && shouldRetryCall(callStatus, entry.retryCount)) {
-      console.log(`[callStatus] ${callStatus} on ${callSid} (attempt ${entry.retryCount + 1}/3) — retrying in 2s`);
-      await new Promise(r => setTimeout(r, 2000));
+      const delayMs = nextRetryDelayMs();
+      const sipCode = body.SipResponseCode ?? "";
+      console.log(`[callStatus] ${callStatus}${sipCode ? ` (SIP ${sipCode})` : ""} on ${callSid} (attempt ${entry.retryCount + 1}/3) — retrying in ${delayMs}ms`);
+      await new Promise(r => setTimeout(r, delayMs));
       try {
         const client = getTwilio();
         const newCall = await client.calls.create({
           to: entry.to,
           from: entry.from,
           url: entry.twimlUrl,
+          timeout: CALL_TIMEOUT_SECONDS,
           statusCallback: entry.statusCallbackUrl,
           statusCallbackMethod: "POST",
           statusCallbackEvent: ["initiated", "ringing", "answered", "completed"],
@@ -341,6 +350,15 @@ export async function registerFrontendRoutes(app: FastifyInstance): Promise<void
         const secs = parseInt(raw, 10);
         if (!isNaN(secs)) patch.duration = secs;
       }
+      // On terminal statuses, record the raw Twilio status + any SIP response
+      // code so we can post-hoc distinguish gateway timeouts (no code) from
+      // real 486/503 rejections when tuning retry behavior.
+      if (callStatus === "completed" || callStatus === "failed" ||
+          callStatus === "busy" || callStatus === "no-answer") {
+        patch.terminalCallStatus = callStatus;
+        if (body.SipResponseCode) patch.sipResponseCode = body.SipResponseCode;
+        console.log(`[callStatus] Terminal ${callStatus}${body.SipResponseCode ? ` (SIP ${body.SipResponseCode})` : ""} for ${originalCallSid}`);
+      }
       await updateCallTracker(originalCallSid, patch);
       if (callStatus === "completed" || callStatus === "failed") await deleteRetryEntry(callSid);
     }
@@ -371,6 +389,7 @@ export async function registerFrontendRoutes(app: FastifyInstance): Promise<void
         to: sipAddress,
         from,
         url: `${ngrokBase}/twiml`,
+        timeout: CALL_TIMEOUT_SECONDS,
         statusCallback: `${ngrokBase}/api/callStatus`,
         statusCallbackMethod: "POST",
         statusCallbackEvent: ["initiated", "ringing", "answered", "completed"],
