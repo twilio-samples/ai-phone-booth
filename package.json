@@ -9,6 +9,7 @@
 		"start": "tsx server.ts",
 		"dev": "tsx server.ts",
 		"reset-stats": "tsx scripts/reset-stats.ts",
+		"debug-sip-call": "tsx scripts/debug-sip-call.ts",
 		"test": "vitest run",
 		"test:watch": "vitest",
 		"test:e2e": "playwright test"
