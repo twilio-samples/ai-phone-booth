@@ -63,6 +63,12 @@
     font-size: 13px;
     font-weight: 600;
     display: none;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+  }
+  .active-calls-badge:hover {
+    background: rgba(245,200,66,0.22);
+    border-color: rgba(245,200,66,0.55);
   }
   .active-calls-badge.visible { display: inline-block; }
 
@@ -198,7 +204,7 @@
     <div class="header-title">Booth Admin</div>
     <div class="header-sub">Runtime configuration — overrides env-var defaults</div>
   </div>
-  <div class="active-calls-badge" id="activeCallsBadge"></div>
+  <div class="active-calls-badge" id="activeCallsBadge" title="Click to terminate all active calls"></div>
 </header>
 
 <main id="main">
@@ -294,6 +300,35 @@ const loadingState = document.getElementById('loadingState');
 const activeCallsBadge = document.getElementById('activeCallsBadge');
 
 let activeCalls = 0;
+
+function renderActiveCallsBadge() {
+  if (activeCalls > 0) {
+    activeCallsBadge.textContent = `${activeCalls} call${activeCalls === 1 ? '' : 's'} in progress`;
+    activeCallsBadge.classList.add('visible');
+  } else {
+    activeCallsBadge.textContent = '';
+    activeCallsBadge.classList.remove('visible');
+  }
+}
+
+activeCallsBadge.addEventListener('click', async () => {
+  if (activeCalls === 0) return;
+  const ok = confirm(`Terminate all ${activeCalls} active call${activeCalls === 1 ? '' : 's'}? This will hang up any live participants and mark the calls as failed.`);
+  if (!ok) return;
+
+  activeCallsBadge.textContent = 'Terminating…';
+  try {
+    const res = await fetch('/api/admin/terminateActiveCalls', { method: 'POST' });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const { terminated } = await res.json();
+    activeCalls = 0;
+    renderActiveCallsBadge();
+    alert(`Terminated ${terminated} call${terminated === 1 ? '' : 's'}.`);
+  } catch (err) {
+    alert(`Failed to terminate calls: ${err.message ?? err}`);
+    renderActiveCallsBadge();
+  }
+});
 
 function slugify(v) { return v.trim().toLowerCase(); }
 
@@ -391,10 +426,7 @@ async function init() {
   const { config, activeCalls: n, sipPhoneAddresses } = await res.json();
   activeCalls = n;
 
-  if (activeCalls > 0) {
-    activeCallsBadge.textContent = `${activeCalls} call${activeCalls === 1 ? '' : 's'} in progress`;
-    activeCallsBadge.classList.add('visible');
-  }
+  renderActiveCallsBadge();
 
   main.innerHTML = '';
   const tpl = document.getElementById('formTemplate');

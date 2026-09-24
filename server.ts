@@ -2,7 +2,7 @@ import { config } from "dotenv";
 import Fastify from "fastify";
 import { TAC, TACConfig, TACServer, VoiceChannel, createLogger } from "twilio-agent-connect";
 import { clearConversation, handleMessage, promoteSession, warmSession, WELCOME_GREETING } from "./agent.ts";
-import { registerFrontendRoutes } from "./frontend.ts";
+import { reconcileActiveCalls, registerFrontendRoutes } from "./frontend.ts";
 
 config();
 
@@ -139,3 +139,8 @@ const server = new TACServer(tac, {
   },
 });
 await server.start();
+
+// Fire-and-forget: reconcile any leftover "calling"/"in-progress" tracker
+// items against Twilio's Voice API so a callback lost across a restart
+// doesn't leave the admin dashboard's active-call count wrong.
+reconcileActiveCalls().catch((err) => console.error("[reconcile] failed:", err));

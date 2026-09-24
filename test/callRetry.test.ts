@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isRetryableCallStatus, MAX_CALL_RETRIES, shouldRetryCall } from "../callRetry.ts";
+import { isRetryableCallStatus, MAX_CALL_RETRIES, nextRetryDelayMs, RETRY_BASE_DELAY_MS, RETRY_JITTER_MS, shouldRetryCall } from "../callRetry.ts";
 
 describe("isRetryableCallStatus", () => {
   it("treats busy as retryable", () => {
@@ -10,16 +10,26 @@ describe("isRetryableCallStatus", () => {
     expect(isRetryableCallStatus("no-answer")).toBe(true);
   });
 
+  it("treats failed as retryable (SIP INVITE timeout to slow gateway)", () => {
+    expect(isRetryableCallStatus("failed")).toBe(true);
+  });
+
   it("does not treat completed as retryable", () => {
     expect(isRetryableCallStatus("completed")).toBe(false);
   });
 
-  it("does not treat failed as retryable", () => {
-    expect(isRetryableCallStatus("failed")).toBe(false);
-  });
-
   it("does not treat in-progress as retryable", () => {
     expect(isRetryableCallStatus("in-progress")).toBe(false);
+  });
+});
+
+describe("nextRetryDelayMs", () => {
+  it("returns a value in [base, base + jitter)", () => {
+    for (let i = 0; i < 100; i++) {
+      const d = nextRetryDelayMs();
+      expect(d).toBeGreaterThanOrEqual(RETRY_BASE_DELAY_MS);
+      expect(d).toBeLessThan(RETRY_BASE_DELAY_MS + RETRY_JITTER_MS);
+    }
   });
 });
 

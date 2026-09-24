@@ -14,10 +14,83 @@ export interface CallTrackerItem {
   cintel?: CintelSummary;
   observations?: string[];
   summaries?: string[];
+  // Populated on terminal callbacks so we can distinguish gateway timeouts
+  // (no code) from 486/503 rejections when tuning retry behavior.
+  terminalCallStatus?: string;
+  sipResponseCode?: string;
 }
 
 export const SYNC_MAP_NAME = "callTracker";
 export const SYNC_ITEM_TTL = 604800;
+
+// Retry state for outbound-call retry chains, keyed by any CallSid in the
+// chain → entry pointing back to the original CallSid and the params needed
+// to place another attempt. Persisted so a restart mid-chain doesn't orphan
+// the tracker at status="calling" forever.
+export const RETRY_MAP_NAME = "callRetry";
+export const RETRY_ITEM_TTL = 3600;
+
+export interface RetryEntry {
+  originalCallSid: string;
+  retryCount: number;
+  to: string;
+  from: string;
+  twimlUrl: string;
+  statusCallbackUrl: string;
+}
+
+export async function readRetryEntry(callSid: string): Promise<RetryEntry | undefined> {
+  const syncServiceSid = process.env.TWILIO_SYNC_SERVICE_SID!;
+  try {
+    const item = await getTwilio().sync.v1.services(syncServiceSid)
+      .syncMaps(RETRY_MAP_NAME).syncMapItems(callSid).fetch();
+    return item.data as RetryEntry;
+  } catch (err: any) {
+    if (err?.status === 404) return undefined;
+    console.error(`[sync] readRetryEntry error (${callSid}):`, err);
+    return undefined;
+  }
+}
+
+export async function writeRetryEntry(callSid: string, entry: RetryEntry): Promise<void> {
+  const syncServiceSid = process.env.TWILIO_SYNC_SERVICE_SID!;
+  const client = getTwilio();
+  const maps = client.sync.v1.services(syncServiceSid).syncMaps;
+  try {
+    await maps(RETRY_MAP_NAME).syncMapItems.create({
+      key: callSid,
+      ttl: RETRY_ITEM_TTL,
+      data: entry,
+    });
+  } catch (err: any) {
+    if (err?.status === 404) {
+      await maps.create({ uniqueName: RETRY_MAP_NAME });
+      await maps(RETRY_MAP_NAME).syncMapItems.create({
+        key: callSid,
+        ttl: RETRY_ITEM_TTL,
+        data: entry,
+      });
+      return;
+    }
+    // Item may already exist from a duplicate callback — overwrite.
+    if (err?.status === 409) {
+      await maps(RETRY_MAP_NAME).syncMapItems(callSid).update({ data: entry, ttl: RETRY_ITEM_TTL });
+      return;
+    }
+    throw err;
+  }
+}
+
+export async function deleteRetryEntry(callSid: string): Promise<void> {
+  const syncServiceSid = process.env.TWILIO_SYNC_SERVICE_SID!;
+  try {
+    await getTwilio().sync.v1.services(syncServiceSid)
+      .syncMaps(RETRY_MAP_NAME).syncMapItems(callSid).remove();
+  } catch (err: any) {
+    if (err?.status === 404) return;
+    console.error(`[sync] deleteRetryEntry error (${callSid}):`, err);
+  }
+}
 
 export interface BoothConfig {
   attractMode?: boolean;
