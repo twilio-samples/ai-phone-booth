@@ -135,7 +135,9 @@ const server = new TACServer(tac, {
     language: "multi",
     elevenlabsTextNormalization: "on",
     ttsProvider: "ElevenLabs",
-    voice: "ZF6FPAbjXT4488VcRRnw-flash_v2_5-1.0_1.0_1.0",
+    // Original Olivia voice: "ZF6FPAbjXT4488VcRRnw-flash_v2_5-1.0_1.0_1.0",
+    // Voice below is for Charlotte, Australian lady with Australia accent:
+    voice: "aRlmTYIQo6Tlg5SlulGC",
   },
 });
 await server.start();
