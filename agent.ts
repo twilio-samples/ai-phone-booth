@@ -1,4 +1,3 @@
-import { config } from "dotenv";
 import WebSocket from "ws";
 import twilio from "twilio";
 import {
@@ -10,11 +9,12 @@ import type {
   ConversationSession,
   TACMemoryResponse,
 } from "twilio-agent-connect";
+import { loadEnv } from "./loadEnv.ts";
 import { updateCallTracker } from "./sync.ts";
 import { resolvedConfig } from "./config.ts";
 import { parseMenuItems } from "./menu.ts";
 
-config();
+loadEnv();
 
 // Fail fast if critical env vars contain invalid characters (e.g. newline from missing closing quote)
 for (const key of ["OPENAI_API_KEY", "TWILIO_API_KEY", "TWILIO_API_SECRET", "TWILIO_ACCOUNT_SID"]) {

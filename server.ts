@@ -1,10 +1,10 @@
-import { config } from "dotenv";
 import Fastify from "fastify";
 import { TAC, TACConfig, TACServer, VoiceChannel, createLogger } from "twilio-agent-connect";
+import { loadEnv } from "./loadEnv.ts";
 import { clearConversation, handleMessage, promoteSession, warmSession, WELCOME_GREETING } from "./agent.ts";
 import { reconcileActiveCalls, registerFrontendRoutes } from "./frontend.ts";
 
-config();
+loadEnv();
 
 const silentLogger = createLogger({ level: "silent" });
 

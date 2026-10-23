@@ -1,7 +1,9 @@
-import "dotenv/config";
 import twilio from "twilio";
 import { throttledQueue, seconds } from "throttled-queue";
+import { loadEnv } from "../loadEnv.ts";
 import { SYNC_MAP_NAME } from "../sync.ts";
+
+loadEnv();
 
 const throttle = throttledQueue({ maxPerInterval: 10, interval: seconds(1) });
 

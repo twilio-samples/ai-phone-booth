@@ -1,0 +1,12 @@
+# Keep local secrets and dev-only files out of the image. Env vars are
+# provided by the deploy target (Azure Container App), not baked in.
+.env
+.env.*
+!.env.example
+.git
+.gitignore
+node_modules
+test-results
+playwright-report
+blob-report
+*.log
